@@ -1,0 +1,138 @@
+@import "tailwindcss";
+
+:root {
+  --bg:      #f0ede8;
+  --surface: #ffffff;
+  --border:  #e2ddd6;
+  --text:    #1a1714;
+  --sub:     #6b6259;
+  --muted:   #a39890;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  min-height: 100vh;
+}
+
+/* ── Card flip ── */
+.card-flip-wrapper {
+  perspective: 900px;
+}
+
+.card-flip {
+  transform-style: preserve-3d;
+  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+}
+
+.card-flip.flipped {
+  transform: rotateY(180deg);
+}
+
+.card-face {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.card-back {
+  transform: rotateY(180deg);
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+}
+
+/* ── Platinum shimmer text ── */
+@keyframes shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position:  200% center; }
+}
+
+.platinum-shimmer {
+  background: linear-gradient(90deg, #a8d4f5, #e2f0ff, #b8c8ff, #e2f0ff, #a8d4f5);
+  background-size: 200% auto;
+  animation: shimmer 2.5s linear infinite;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── Foil sweep ── */
+@keyframes foil-sweep {
+  0%   { transform: translateX(-160%) skewX(-18deg); }
+  100% { transform: translateX(320%)  skewX(-18deg); }
+}
+
+.foil-sweep {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 30%, rgba(255,255,255,0.07) 50%, transparent 70%);
+  animation: foil-sweep 5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.foil-sweep-gold {
+  background: linear-gradient(90deg, transparent 30%, rgba(255,220,80,0.13) 50%, transparent 70%);
+  animation: foil-sweep 4.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.foil-sweep-platinum {
+  background: linear-gradient(90deg, transparent 25%, rgba(180,220,255,0.22) 50%, transparent 75%);
+  animation: foil-sweep 3.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* ── Holographic overlay (platinum) ── */
+@keyframes holo-shift {
+  0%   { filter: hue-rotate(0deg);   opacity: 0.13; }
+  33%  { filter: hue-rotate(120deg); opacity: 0.18; }
+  66%  { filter: hue-rotate(240deg); opacity: 0.13; }
+  100% { filter: hue-rotate(360deg); opacity: 0.13; }
+}
+
+.holo-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg,
+    #ff0080 0%, #ff8000 17%, #ffff00 33%,
+    #00ff80 50%, #0080ff 67%, #8000ff 83%, #ff0080 100%
+  );
+  opacity: 0.13;
+  mix-blend-mode: screen;
+  animation: holo-shift 5s linear infinite;
+  pointer-events: none;
+}
+
+/* ── Tier glows — tuned for light backgrounds ── */
+.glow-unrevealed { box-shadow: 0 4px 20px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.08); }
+.glow-bronze     { box-shadow: 0 0 24px rgba(180,100,0,0.25),   0 4px 24px rgba(0,0,0,0.14); }
+.glow-silver     { box-shadow: 0 0 20px rgba(120,130,150,0.18), 0 4px 20px rgba(0,0,0,0.12); }
+.glow-gold       { box-shadow: 0 0 32px rgba(220,160,0,0.40),   0 4px 24px rgba(0,0,0,0.14); }
+.glow-platinum   { box-shadow: 0 0 40px rgba(100,160,255,0.45), 0 0 80px rgba(80,60,200,0.20), 0 4px 24px rgba(0,0,0,0.16); }
+
+/* ── Pack shine sweep ── */
+@keyframes pack-shine {
+  0%   { transform: translateX(-200%) skewX(-15deg); }
+  100% { transform: translateX(400%)  skewX(-15deg); }
+}
+
+.pack-shine {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 35%, rgba(255,255,255,0.07) 50%, transparent 65%);
+  animation: pack-shine 6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* ── Wager card hand slide-in ── */
+@keyframes slideFromLeft {
+  from { opacity: 0; transform: translateX(-14px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes slideFromRight {
+  from { opacity: 0; transform: translateX(14px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.hand-slide-left  { animation: slideFromLeft  0.18s ease forwards; }
+.hand-slide-right { animation: slideFromRight 0.18s ease forwards; }

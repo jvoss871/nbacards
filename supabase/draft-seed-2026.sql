@@ -1,0 +1,71 @@
+-- 2026 NBA Draft — Round 1 prospects + results
+-- Run this AFTER draft-migration.sql
+
+-- Prospects
+insert into draft_prospects (year, name, position, projected_min, projected_max) values
+  (2026, 'A. Dybantsa',     'SF', 1,  2),
+  (2026, 'D. Peterson',     'PG', 2,  4),
+  (2026, 'C. Boozer',       'PF', 3,  6),
+  (2026, 'C. Wilson',       'SF', 4,  7),
+  (2026, 'K. Wagler',       'PG', 4,  8),
+  (2026, 'M. Brown Jr.',    'SG', 5,  9),
+  (2026, 'D. Acuff Jr.',    'SG', 6, 12),
+  (2026, 'K. Flemings',     'PF', 7, 13),
+  (2026, 'M. Johnson Jr.',  'PG', 8, 14),
+  (2026, 'B. Burries',      'PG', 9, 15),
+  (2026, 'Y. Lendeborg',    'C',  8, 14),
+  (2026, 'A. Mara',         'C', 10, 16),
+  (2026, 'N. Ament',        'PF',11, 17),
+  (2026, 'H. Steinbach',    'SF',12, 18),
+  (2026, 'D. Swain',        'SG',13, 19),
+  (2026, 'B. Stirtz',       'PG',14, 20),
+  (2026, 'E. Okorie',       'SF',15, 21),
+  (2026, 'C. Anderson Jr.', 'PF',16, 22),
+  (2026, 'A. Graves',       'SG',17, 23),
+  (2026, 'J. Quaintance',   'PF',18, 24),
+  (2026, 'K. Lopez',        'C', 19, 25),
+  (2026, 'L. Philon Jr.',   'PG',20, 26),
+  (2026, 'Z. Ejiofor',      'PF',21, 27),
+  (2026, 'C. Carr',         'SG',22, 28),
+  (2026, 'S. De Larrea',    'C', 23, 29),
+  (2026, 'T. Reed Jr.',     'SF',24, 30),
+  (2026, 'C. Cenac Jr.',    'PF',25, 30),
+  (2026, 'J. Jefferson',    'C', 26, 30),
+  (2026, 'A. Karaban',      'SF',27, 30),
+  (2026, 'K. Peat',         'C', 28, 30)
+on conflict do nothing;
+
+-- Results (actual 2026 draft order from image)
+-- Insert after prospects so we can reference by prospect_name as fallback
+insert into draft_results (year, slot, prospect_name) values
+  (2026,  1, 'A. Dybantsa'),
+  (2026,  2, 'D. Peterson'),
+  (2026,  3, 'C. Boozer'),
+  (2026,  4, 'C. Wilson'),
+  (2026,  5, 'K. Wagler'),
+  (2026,  6, 'M. Brown Jr.'),
+  (2026,  7, 'D. Acuff Jr.'),
+  (2026,  8, 'K. Flemings'),
+  (2026,  9, 'M. Johnson Jr.'),
+  (2026, 10, 'B. Burries'),
+  (2026, 11, 'Y. Lendeborg'),
+  (2026, 12, 'A. Mara'),
+  (2026, 13, 'N. Ament'),
+  (2026, 14, 'H. Steinbach'),
+  (2026, 15, 'D. Swain'),
+  (2026, 16, 'B. Stirtz'),
+  (2026, 17, 'E. Okorie'),
+  (2026, 18, 'C. Anderson Jr.'),
+  (2026, 19, 'A. Graves'),
+  (2026, 20, 'J. Quaintance'),
+  (2026, 21, 'K. Lopez'),
+  (2026, 22, 'L. Philon Jr.'),
+  (2026, 23, 'Z. Ejiofor'),
+  (2026, 24, 'C. Carr'),
+  (2026, 25, 'S. De Larrea'),
+  (2026, 26, 'T. Reed Jr.'),
+  (2026, 27, 'C. Cenac Jr.'),
+  (2026, 28, 'J. Jefferson'),
+  (2026, 29, 'A. Karaban'),
+  (2026, 30, 'K. Peat')
+on conflict do nothing;

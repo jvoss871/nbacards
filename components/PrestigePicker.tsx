@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { LegendCard, type LegendData } from './LegendCard'
 import { ROMAN } from './PrestigeAvatar'
+import { useLockBodyScroll } from '@/lib/use-lock-body-scroll'
 
 export interface LegendOption extends LegendData {
   id: string
@@ -53,6 +54,7 @@ export function PrestigePicker({
   onCancel: () => void
   prestiging: boolean
 }) {
+  useLockBodyScroll()
   const [revealed, setRevealed] = useState<boolean[]>(Array(options.length).fill(false))
   const [flipping, setFlipping] = useState<boolean[]>(Array(options.length).fill(false))
   const [confirming, setConfirming] = useState(false)

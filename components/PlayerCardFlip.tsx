@@ -2,6 +2,8 @@
 
 import type { Player, Tier } from '@/lib/types'
 import { TIER_LABEL } from '@/lib/game-logic'
+import { teamLogoUrl } from '@/lib/team-logo'
+import { lastNameFontSize, GOLD_HEX_BG, splitName } from '@/lib/card-utils'
 
 interface Props {
   card: Player
@@ -18,15 +20,17 @@ const CARD_STYLE: Record<Tier, {
   label: string
   footer: string
   glow: string
+  photoGlow: string
 }> = {
   bronze: {
     gradient: 'from-amber-600 via-amber-900 to-stone-950',
     border: 'border-amber-500/80',
     foil: 'from-amber-500/25 to-transparent',
-    foilClass: 'foil-sweep',
+    foilClass: '',
     label: 'text-amber-300',
     footer: 'from-stone-950',
-    glow: 'glow-bronze',
+    glow: 'shadow-sm',
+    photoGlow: 'rgba(217,119,6,0.45)',
   },
   silver: {
     gradient: 'from-slate-300 via-slate-600 to-slate-900',
@@ -36,6 +40,7 @@ const CARD_STYLE: Record<Tier, {
     label: 'text-slate-200',
     footer: 'from-slate-900',
     glow: 'glow-silver',
+    photoGlow: 'rgba(226,232,240,0.45)',
   },
   gold: {
     gradient: 'from-yellow-400 via-yellow-800 to-amber-950',
@@ -45,6 +50,7 @@ const CARD_STYLE: Record<Tier, {
     label: 'text-yellow-200',
     footer: 'from-amber-950',
     glow: 'glow-gold',
+    photoGlow: 'rgba(250,204,21,0.45)',
   },
   platinum: {
     gradient: 'from-cyan-400 via-blue-700 to-indigo-950',
@@ -54,6 +60,7 @@ const CARD_STYLE: Record<Tier, {
     label: 'text-cyan-200',
     footer: 'from-indigo-950',
     glow: 'glow-platinum',
+    photoGlow: 'rgba(34,211,238,0.45)',
   },
 }
 
@@ -65,6 +72,7 @@ export default function PlayerCardFlip({ card, reliability, revealed, onFlip }: 
   if (!card) return null
   const s = CARD_STYLE[card.tier]
   const isPlatinum = card.tier === 'platinum'
+  const isGold = card.tier === 'gold'
 
   return (
     <div
@@ -94,8 +102,38 @@ export default function PlayerCardFlip({ card, reliability, revealed, onFlip }: 
           {/* Animated foil sweep */}
           <div className={`${s.foilClass} absolute inset-0`} />
 
-          {/* Holographic overlay — platinum only */}
-          {isPlatinum && <div className="holo-overlay" />}
+          {/* Starburst + grain — platinum only */}
+          {isPlatinum && (
+            <>
+              <div
+                className="absolute inset-0 pointer-events-none"
+                style={{
+                  background: 'repeating-conic-gradient(from 0deg at 50% 45%, rgba(180,230,255,0.10) 0deg 11deg, rgba(0,10,60,0.06) 11deg 22deg)',
+                  mixBlendMode: 'screen',
+                }}
+              />
+              <div
+                className="absolute inset-0 pointer-events-none opacity-[0.22]"
+                style={{
+                  backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E\")",
+                  backgroundSize: '200px 200px',
+                  mixBlendMode: 'overlay',
+                }}
+              />
+              <div className="holo-overlay" />
+            </>
+          )}
+          {isGold && (
+            <div
+              className="absolute inset-0 pointer-events-none"
+              style={{
+                backgroundImage: GOLD_HEX_BG,
+                backgroundSize: '10.4px 18px',
+                mixBlendMode: 'overlay',
+                opacity: 0.6,
+              }}
+            />
+          )}
 
           {/* Inner card frame */}
           <div className="absolute inset-[4px] rounded-xl border border-white/[0.08] pointer-events-none z-10" />
@@ -109,8 +147,8 @@ export default function PlayerCardFlip({ card, reliability, revealed, onFlip }: 
             ) : (
               <span className="text-[8px] font-bold text-white/30 uppercase tracking-[0.2em]">CardPicks</span>
             )}
-            <span className={`rounded-full px-2 py-px text-[8px] font-black uppercase leading-none bg-white/15 ${s.label} ${isPlatinum ? 'platinum-shimmer' : ''}`}>
-              {TIER_LABEL[card.tier]}
+            <span className={`text-[9px] font-black ${s.label} ${isPlatinum ? 'platinum-shimmer' : ''}`}>
+              {card.multiplier}×
             </span>
           </div>
 
@@ -122,6 +160,7 @@ export default function PlayerCardFlip({ card, reliability, revealed, onFlip }: 
                 src={card.image_url}
                 alt={card.name}
                 className="w-full h-full object-cover object-top"
+                style={{ filter: `drop-shadow(0 0 4px ${s.photoGlow}) drop-shadow(0 0 10px ${s.photoGlow})` }}
                 onError={e => { (e.target as HTMLImageElement).style.opacity = '0' }}
               />
             ) : (
@@ -131,19 +170,27 @@ export default function PlayerCardFlip({ card, reliability, revealed, onFlip }: 
             )}
           </div>
 
-          {/* Bottom gradient overlay */}
-          <div className={`absolute bottom-0 inset-x-0 h-24 bg-gradient-to-t ${s.footer} to-transparent`} />
+          <div className={`absolute bottom-0 inset-x-0 h-28 bg-gradient-to-t ${s.footer} to-transparent`} />
 
-          {/* Bottom info */}
-          <div className="absolute bottom-0 inset-x-0 px-2.5 pb-2.5 z-20">
-            <div className="text-white font-black text-[11px] uppercase tracking-wide leading-tight truncate drop-shadow-lg">
-              {card.name}
-            </div>
-            <div className="flex items-center justify-between mt-0.5">
-              <span className="text-white/50 text-[9px] uppercase tracking-wide">
-                {card.team_abbr} · {card.position}
-              </span>
-              <span className={`text-[10px] font-black ${s.label}`}>{card.multiplier}x</span>
+          <div className="absolute bottom-0 inset-x-0 pl-1 pr-2.5 pb-1 z-20 flex items-end justify-between">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={teamLogoUrl(card.team_abbr)}
+              alt={card.team_abbr}
+              className="w-11 h-11 object-contain opacity-90 flex-shrink-0"
+              style={{ filter: 'drop-shadow(0 0 3px rgba(255,255,255,0.9)) drop-shadow(0 0 7px rgba(255,255,255,0.55))' }}
+            />
+            <div className="text-right min-w-0">
+              {(() => {
+                const { first, last } = splitName(card.name)
+                return (
+                  <>
+                    {first && <div className="text-white/70 text-[11px] font-bold uppercase tracking-wider leading-none">{first}</div>}
+                    <div className="text-white font-black uppercase tracking-wide leading-tight drop-shadow-lg" style={{ fontSize: lastNameFontSize(last, 22) }}>{last}</div>
+                    <div className="text-white text-[9px] uppercase tracking-wide">{card.position}</div>
+                  </>
+                )
+              })()}
             </div>
           </div>
 

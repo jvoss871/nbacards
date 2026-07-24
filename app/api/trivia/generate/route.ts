@@ -1,8 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-
-const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
-const MODEL = 'llama-3.3-70b-versatile'
+import { callGroq, parseJsonArray, verifyQuestions, normalizeQuestionText } from '@/lib/trivia-ai'
 
 const DIFFICULTY_PROMPTS: Record<number, string> = {
   1: `EASY — any casual NBA fan should get these right.
@@ -321,82 +319,19 @@ Audience rules (sum must equal exactly 100):
 - Medium (difficulty 2): correct gets 48-65%
 - Hard (difficulty 3): correct gets 32-52%`
 
-  const groqRes = await fetch(GROQ_URL, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.85,
-      max_tokens: 8000,
-    }),
-  })
-
-  if (!groqRes.ok) {
-    const err = await groqRes.text()
-    return NextResponse.json({ error: `Groq error: ${err}` }, { status: 502 })
-  }
-
-  const groqData = await groqRes.json()
-  const raw = groqData.choices?.[0]?.message?.content ?? ''
-
   let questions: unknown[]
   try {
-    const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
-    questions = JSON.parse(cleaned)
-    if (!Array.isArray(questions)) throw new Error('Not an array')
-  } catch {
-    return NextResponse.json({ error: 'Failed to parse Groq response', raw }, { status: 502 })
+    const raw = await callGroq(apiKey, prompt, { temperature: 0.85, maxTokens: 8000 })
+    questions = parseJsonArray(raw)
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Failed to parse Groq response' }, { status: 502 })
   }
 
   // ── Verification pass ──
-  const verifyPrompt = `You are an NBA fact-checker. For each question below, verify whether the stated correct answer is accurate.
-
-Return ONLY a JSON array of booleans (one per question, in order): [true, false, true, ...]
-true = the answer is correct or very likely correct
-false = the answer is DEFINITELY wrong (you are confident it is factually incorrect)
-
-Only return false when you are certain the answer is wrong. If unsure, return true.
-
-Questions to verify:
-${questions.map((q: unknown, i: number) => {
-  const item = q as Record<string, unknown>
-  const answerKey = item.correct_answer as string
-  const answerText = item[`option_${answerKey}`]
-  return `${i + 1}. ${item.question} → stated correct answer: "${answerText}"`
-}).join('\n')}`
-
-  const verifyRes = await fetch(GROQ_URL, {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: MODEL,
-      messages: [{ role: 'user', content: verifyPrompt }],
-      temperature: 0.1,
-      max_tokens: 500,
-    }),
-  })
-
-  let verified: boolean[] = questions.map(() => true)
-  if (verifyRes.ok) {
-    try {
-      const vData = await verifyRes.json()
-      const vRaw = vData.choices?.[0]?.message?.content ?? '[]'
-      const vCleaned = vRaw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
-      const parsed = JSON.parse(vCleaned)
-      if (Array.isArray(parsed)) verified = parsed
-    } catch { /* use defaults */ }
-  }
+  const verified = await verifyQuestions(apiKey, questions)
 
   // ── Deduplication — exact text only ──
-  const existingNorm = new Set(
-    existingRows.map(q =>
-      q.question.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim()
-    )
-  )
+  const existingNorm = new Set(existingRows.map(q => normalizeQuestionText(q.question)))
 
   const verified_questions = questions.filter((_: unknown, i: number) => verified[i] !== false)
   const rows = verified_questions
@@ -417,10 +352,7 @@ ${questions.map((q: unknown, i: number) => {
         audience_d:     item.audience_d ?? 25,
       }
     })
-    .filter(row => {
-      const norm = row.question.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim()
-      return !existingNorm.has(norm)
-    })
+    .filter(row => !existingNorm.has(normalizeQuestionText(row.question)))
 
   const rejected = questions.length - verified_questions.length
   const duplicates = verified_questions.length - rows.length

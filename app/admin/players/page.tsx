@@ -134,9 +134,11 @@ export default function PlayerPoolPage() {
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
+  const [savedMsg, setSavedMsg] = useState('Saved ✓')
   const [search, setSearch] = useState('')
   const [activePlayer, setActivePlayer] = useState<Player | null>(null)
   const [showBench, setShowBench] = useState(false)
+  const [initialInPool, setInitialInPool] = useState<Record<string, boolean>>({})
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
@@ -153,6 +155,7 @@ export default function PlayerPoolPage() {
           else groups.bench.push(p)
         }
         setTiers(groups)
+        setInitialInPool(Object.fromEntries(players.map(p => [p.id, p.in_pool])))
         setLoading(false)
       })
       .catch(() => setLoading(false))
@@ -211,6 +214,17 @@ export default function PlayerPoolPage() {
   }
 
   async function save() {
+    const newlyBenched = tiers.bench.filter(p => initialInPool[p.id] === true)
+    if (newlyBenched.length > 0) {
+      const names = newlyBenched.slice(0, 8).map(p => p.name).join(', ')
+      const more = newlyBenched.length > 8 ? ` and ${newlyBenched.length - 8} more` : ''
+      const ok = confirm(
+        `${newlyBenched.length} player(s) are being removed from the pool: ${names}${more}.\n\n` +
+        `Every user who owns one of their cards will lose it. This can't be undone. Continue?`
+      )
+      if (!ok) return
+    }
+
     setSaving(true)
     const updates: { id: string; tier: string; in_pool: boolean }[] = []
     for (const key of [...POOL_ORDER, 'bench'] as TierKey[]) {
@@ -218,15 +232,18 @@ export default function PlayerPoolPage() {
         updates.push({ id: p.id, tier: key === 'bench' ? (p.tier || 'bronze') : key, in_pool: key !== 'bench' })
       }
     }
-    await fetch('/api/admin/players/save', {
+    const res = await fetch('/api/admin/players/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates),
     })
+    const data = await res.json().catch(() => ({}))
+    setInitialInPool(Object.fromEntries(updates.map(u => [u.id, u.in_pool])))
     setSaving(false)
     setDirty(false)
+    setSavedMsg(data.cardsRemoved > 0 ? `Saved ✓ (${data.cardsRemoved} cards removed)` : 'Saved ✓')
     setSavedFlash(true)
-    setTimeout(() => setSavedFlash(false), 2500)
+    setTimeout(() => setSavedFlash(false), 3500)
   }
 
   const poolTotal = POOL_ORDER.reduce((sum, k) => sum + tiers[k].length, 0)
@@ -272,7 +289,7 @@ export default function PlayerPoolPage() {
                 : 'bg-[#1a1714] text-white hover:bg-[#2c2825]'
             }`}
           >
-            {saving ? 'Saving…' : savedFlash ? 'Saved ✓' : 'Save Changes'}
+            {saving ? 'Saving…' : savedFlash ? savedMsg : 'Save Changes'}
           </button>
         </div>
       </div>

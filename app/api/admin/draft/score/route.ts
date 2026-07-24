@@ -44,32 +44,61 @@ export async function POST(req: Request) {
   if (bErr) return NextResponse.json({ error: bErr.message }, { status: 500 })
   if (!boards?.length) return NextResponse.json({ scored: 0, message: 'no locked boards' })
 
-  let scored = 0
+  // One query for every board's picks instead of one query per board
+  const boardIds = boards.map(b => b.id)
+  const { data: allPicks, error: pErr } = await sb
+    .from('draft_picks')
+    .select('board_id, slot, prospect:draft_prospects(name)')
+    .in('board_id', boardIds)
+
+  if (pErr) return NextResponse.json({ error: pErr.message }, { status: 500 })
+
+  const picksByBoard = new Map<string, { slot: number; prospect: { name: string } | null }[]>()
+  for (const pick of allPicks ?? []) {
+    const list = picksByBoard.get(pick.board_id as string) ?? []
+    list.push(pick as unknown as { slot: number; prospect: { name: string } | null })
+    picksByBoard.set(pick.board_id as string, list)
+  }
+
+  const scoredAt = new Date().toISOString()
+  // user_id/year are required (NOT NULL) columns — upsert's insert branch still
+  // validates them even though every one of these ids already exists and will
+  // just hit the conflict path, so they must be included alongside the changes.
+  const boardRows: { id: string; user_id: string; year: number; status: string; correct_picks: number; credits_earned: number; scored_at: string }[] = []
+  const creditsByUser = new Map<string, number>()
 
   for (const board of boards) {
-    const { data: picks } = await sb
-      .from('draft_picks')
-      .select('slot, prospect:draft_prospects(name)')
-      .eq('board_id', board.id)
-
-    const correct = (picks ?? []).filter(p => {
-      const prospect = p.prospect as unknown as { name: string } | null
-      const name = prospect?.name?.trim().toLowerCase() ?? ''
+    const picks = picksByBoard.get(board.id) ?? []
+    const correct = picks.filter(p => {
+      const name = p.prospect?.name?.trim().toLowerCase() ?? ''
       return name && resultMap[p.slot] === name
     }).length
     const credits = calcDraftCredits(correct)
 
-    await sb
-      .from('draft_boards')
-      .update({ status: 'scored', correct_picks: correct, credits_earned: credits, scored_at: new Date().toISOString() })
-      .eq('id', board.id)
-
-    if (credits > 0) {
-      await sb.rpc('increment_credits', { p_user_id: board.user_id, p_amount: credits })
-    }
-
-    scored++
+    boardRows.push({ id: board.id, user_id: board.user_id, year, status: 'scored', correct_picks: correct, credits_earned: credits, scored_at: scoredAt })
+    if (credits > 0) creditsByUser.set(board.user_id, credits)
   }
 
-  return NextResponse.json({ scored, year })
+  const { error: boardUpdateErr } = await sb.from('draft_boards').upsert(boardRows, { onConflict: 'id' })
+  if (boardUpdateErr) return NextResponse.json({ error: boardUpdateErr.message }, { status: 500 })
+
+  if (creditsByUser.size > 0) {
+    const userIds = [...creditsByUser.keys()]
+    const { data: states, error: stateErr } = await sb
+      .from('user_state')
+      .select('user_id, credits')
+      .in('user_id', userIds)
+
+    if (stateErr) return NextResponse.json({ error: stateErr.message }, { status: 500 })
+
+    const creditRows = (states ?? []).map(s => ({
+      user_id: s.user_id as string,
+      credits: (s.credits as number) + (creditsByUser.get(s.user_id as string) ?? 0),
+    }))
+
+    const { error: creditUpdateErr } = await sb.from('user_state').upsert(creditRows, { onConflict: 'user_id' })
+    if (creditUpdateErr) return NextResponse.json({ error: creditUpdateErr.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ scored: boards.length, year })
 }

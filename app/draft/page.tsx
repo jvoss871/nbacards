@@ -1,9 +1,8 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { useCredits } from '@/lib/credits-context'
 import {
-  DRAFT_YEAR, FIRST_ROUND_SLOTS, CREDIT_MULTIPLIER, calcDraftCredits,
+  DRAFT_YEAR, FIRST_ROUND_SLOTS, CREDIT_MULTIPLIER, calcDraftCredits, PROJECTED_DRAFT_ORDER_2026,
   type DraftProspect, type DraftBoard, type DraftSettings, type DraftResult,
 } from '@/lib/draft-logic'
 import {
@@ -93,6 +92,8 @@ function ProspectChip({
   )
 }
 
+// ── 2026 NBA Draft order (slot → team abbr) ──────────────────────────────────
+
 // ── NBA team IDs (cdn.nba.com logos) ─────────────────────────────────────────
 
 const NBA_TEAM_IDS: Record<string, number> = {
@@ -161,7 +162,7 @@ function DropSlot({
       </span>
 
       {/* Team badge */}
-      <TeamBadge abbr={result?.team_abbr ?? null} />
+      <TeamBadge abbr={result?.team_abbr ?? PROJECTED_DRAFT_ORDER_2026[slot - 1] ?? null} />
 
       {/* Player name / drop hint */}
       <div className="flex-1 min-w-0">
@@ -224,8 +225,6 @@ function SlotChip({ prospect, slot }: { prospect: DraftProspect; slot: number })
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function DraftPage() {
-  const { setCredits } = useCredits()
-
   const [settings, setSettings]   = useState<DraftSettings | null>(null)
   const [board, setBoard]         = useState<DraftBoard | null>(null)
   const [prospects, setProspects] = useState<DraftProspect[]>([])

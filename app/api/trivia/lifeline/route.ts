@@ -2,8 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { phoneHint } from '@/lib/trivia-logic'
 import type { Tier } from '@/lib/types'
-
-const USER_ID = 'default'
+import { getUserId } from '@/lib/get-user-id'
 
 function serviceClient() {
   return createClient(
@@ -15,6 +14,9 @@ function serviceClient() {
 // POST /api/trivia/lifeline
 // Body: { session_id, lifeline: 'fifty' | 'phone' | 'audience', player_id?: string }
 export async function POST(req: Request) {
+  const userId = await getUserId(req)
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const { session_id, lifeline, player_id } = await req.json()
   const sb = serviceClient()
 
@@ -22,7 +24,7 @@ export async function POST(req: Request) {
     .from('trivia_sessions')
     .select('*')
     .eq('id', session_id)
-    .eq('user_id', USER_ID)
+    .eq('user_id', userId)
     .single()
 
   if (!session || session.status !== 'active') {
@@ -63,7 +65,7 @@ export async function POST(req: Request) {
     const { data: card } = await sb
       .from('user_cards')
       .select('quantity, reliability, player:players(id, name, tier, multiplier)')
-      .eq('user_id', USER_ID)
+      .eq('user_id', userId)
       .eq('player_id', player_id)
       .single()
 

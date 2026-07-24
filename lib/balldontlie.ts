@@ -42,6 +42,14 @@ export interface BDLSeasonAverage {
   turnover: number
 }
 
+// BallDontLie's team IDs for the 30 current NBA franchises. Low and stable —
+// defunct historical franchises (Chicago Stags, etc.) all sit at id 37+.
+export const BDL_ACTIVE_TEAM_IDS: Record<string, number> = {
+  ATL: 1, BOS: 2, BKN: 3, CHA: 4, CHI: 5, CLE: 6, DAL: 7, DEN: 8, DET: 9, GSW: 10,
+  HOU: 11, IND: 12, LAC: 13, LAL: 14, MEM: 15, MIA: 16, MIL: 17, MIN: 18, NOP: 19, NYK: 20,
+  OKC: 21, ORL: 22, PHI: 23, PHX: 24, POR: 25, SAC: 26, SAS: 27, TOR: 28, UTA: 29, WAS: 30,
+}
+
 function delay(ms: number) {
   return new Promise(r => setTimeout(r, ms))
 }
@@ -61,7 +69,7 @@ async function bdlFetch(url: string, apiKey: string, attempt = 0): Promise<Respo
   return res
 }
 
-export async function fetchActivePlayers(apiKey: string, season?: number): Promise<BDLPlayer[]> {
+export async function fetchActivePlayers(apiKey: string, season?: number, teamIds?: number[]): Promise<BDLPlayer[]> {
   const all: BDLPlayer[] = []
   let cursor: number | undefined
 
@@ -70,6 +78,10 @@ export async function fetchActivePlayers(apiKey: string, season?: number): Promi
     url.searchParams.set('per_page', '100')
     if (season !== undefined) url.searchParams.set('season', String(season))
     if (cursor) url.searchParams.set('cursor', String(cursor))
+    // Filtering server-side by team keeps this to current rosters (~500 players)
+    // instead of paginating BDL's entire all-time player history (thousands of
+    // retired players) just to throw most of it away client-side afterward.
+    teamIds?.forEach(id => url.searchParams.append('team_ids[]', String(id)))
 
     const res = await bdlFetch(url.toString(), apiKey)
     if (!res.ok) throw new Error(`BDL /players failed: ${res.status}`)

@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { PAYOUTS } from '@/lib/trivia-logic'
-
-const USER_ID = 'default'
+import { getUserId } from '@/lib/get-user-id'
 
 function serviceClient() {
   return createClient(
@@ -13,6 +12,8 @@ function serviceClient() {
 
 // POST /api/trivia/walkaway  body: { session_id }
 export async function POST(req: Request) {
+  const USER_ID = await getUserId(req)
+  if (!USER_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { session_id } = await req.json()
   const sb = serviceClient()
 
@@ -49,5 +50,7 @@ export async function POST(req: Request) {
     }
   }
 
-  return NextResponse.json({ earned: total, topUp })
+  const { data: finalState } = await sb.from('user_state').select('credits').eq('user_id', USER_ID).single()
+
+  return NextResponse.json({ earned: total, topUp, credits: finalState?.credits ?? null })
 }

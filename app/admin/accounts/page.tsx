@@ -23,6 +23,15 @@ interface UserDetail {
   trivia: { total: number; won: number }
   credits_earned: { picks: number; trivia: number; draft: number; total: number }
   total_spent_cents: number
+  support_note: string
+  purchases: {
+    id: string
+    amount_cents: number
+    credits_granted: number
+    status: string
+    stripe_session_id: string
+    created_at: string
+  }[]
 }
 
 interface UserEvent {
@@ -37,7 +46,7 @@ function fmtUSD(cents: number) {
   return `$${(cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  return new Date(iso).toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
@@ -55,6 +64,8 @@ const EVENT_LABELS: Record<string, { label: string; color: string }> = {
   prestige_attempt:   { label: 'Prestige Attempt',    color: 'bg-amber-100 text-amber-700' },
   prestige_completed: { label: 'Prestige Completed',  color: 'bg-emerald-100 text-emerald-700' },
   credits_adjusted:   { label: 'Credits Adjusted',    color: 'bg-blue-100 text-blue-700' },
+  pick_settled:       { label: 'Pick Settled',        color: 'bg-teal-100 text-teal-700' },
+  card_removed_pool:  { label: 'Card Removed',        color: 'bg-red-100 text-red-700' },
 }
 
 function eventSummary(ev: UserEvent): string {
@@ -73,13 +84,25 @@ function eventSummary(ev: UserEvent): string {
       const delta = m.delta as number
       return `${delta > 0 ? '+' : ''}${delta} cr by admin · balance: ${(m.new_balance as number).toLocaleString()}`
     }
+    case 'pick_settled': {
+      const correct = m.correct as boolean
+      const wager = m.wagered_card as string | null
+      const wagerNote = wager
+        ? correct
+          ? ` · wagered ${wager} (safe)`
+          : m.card_protected ? ` · wagered ${wager} (insured, safe)` : m.card_lost ? ` · lost ${wager}` : ` · wagered ${wager}`
+        : ''
+      return `${correct ? 'Correct' : 'Missed'} · +${m.credits_earned as number} cr${wagerNote}`
+    }
+    case 'card_removed_pool':
+      return `${m.player_name} — removed from the player pool`
     default:
       return JSON.stringify(m)
   }
 }
 
 function fmtEventDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  return new Date(iso).toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 function UserDetailPanel({ userId, onClose }: { userId: string; onClose: () => void }) {
@@ -89,6 +112,9 @@ function UserDetailPanel({ userId, onClose }: { userId: string; onClose: () => v
   const [creditDelta, setCreditDelta] = useState('')
   const [adjusting, setAdjusting] = useState(false)
   const [feedback, setFeedback] = useState('')
+  const [noteText, setNoteText] = useState('')
+  const [noteSaving, setNoteSaving] = useState(false)
+  const [noteSaved, setNoteSaved] = useState(false)
 
   useEffect(() => {
     setLoading(true)
@@ -96,7 +122,7 @@ function UserDetailPanel({ userId, onClose }: { userId: string; onClose: () => v
     setEvents([])
     fetch(`/api/admin/accounts/${userId}`)
       .then(r => r.json())
-      .then(d => { setDetail(d); setLoading(false) })
+      .then(d => { setDetail(d); setNoteText(d.support_note ?? ''); setLoading(false) })
       .catch(() => setLoading(false))
     fetch(`/api/admin/accounts/${userId}/events`)
       .then(r => r.json())
@@ -123,6 +149,20 @@ function UserDetailPanel({ userId, onClose }: { userId: string; onClose: () => v
     }
     setAdjusting(false)
     setTimeout(() => setFeedback(''), 3000)
+  }
+
+  async function saveNote() {
+    setNoteSaving(true)
+    const res = await fetch(`/api/admin/accounts/${userId}/note`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note: noteText }),
+    })
+    setNoteSaving(false)
+    if (res.ok) {
+      setNoteSaved(true)
+      setTimeout(() => setNoteSaved(false), 2000)
+    }
   }
 
   const winRate = detail && detail.picks.total > 0
@@ -222,6 +262,55 @@ function UserDetailPanel({ userId, onClose }: { userId: string; onClose: () => v
               )}
             </div>
           </div>
+
+          {/* Support note */}
+          <div className="h-px bg-[#e2ddd6]" />
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-[#a39890] mb-2">Support Note</p>
+            <textarea
+              rows={2}
+              value={noteText}
+              onChange={e => setNoteText(e.target.value)}
+              placeholder="e.g. Refunded manually on 7/24 — chargeback dispute"
+              className="w-full px-3 py-2 rounded-xl border border-[#e2ddd6] text-xs focus:outline-none focus:border-[#1a1714]/30 resize-none"
+            />
+            <button
+              onClick={saveNote}
+              disabled={noteSaving}
+              className={`mt-1.5 px-4 py-1.5 rounded-xl text-xs font-black transition-colors disabled:opacity-40 ${
+                noteSaved ? 'bg-emerald-600 text-white' : 'bg-[#1a1714] hover:bg-[#2c2825] text-white'
+              }`}
+            >
+              {noteSaving ? 'Saving…' : noteSaved ? 'Saved ✓' : 'Save Note'}
+            </button>
+          </div>
+
+          {/* Purchases — find the transaction here, handle refunds/disputes in Stripe's own dashboard */}
+          {detail.purchases.length > 0 && (
+            <>
+              <div className="h-px bg-[#e2ddd6]" />
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-[#a39890] mb-2">Purchases</p>
+                <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1" style={{ scrollbarWidth: 'thin' }}>
+                  {detail.purchases.map(p => (
+                    <div key={p.id} className="flex items-center gap-2.5 text-[10px]">
+                      <span className="text-[9px] text-[#c8c2b8] tabular-nums w-20 flex-shrink-0">{fmtDate(p.created_at)}</span>
+                      <span className="font-black text-[#1a1714] w-16 flex-shrink-0 tabular-nums">{fmtUSD(p.amount_cents)}</span>
+                      <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-md flex-shrink-0 ${
+                        p.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
+                      }`}>
+                        {p.status}
+                      </span>
+                      <span className="text-[#a39890] truncate font-mono" title={p.stripe_session_id}>
+                        {p.stripe_session_id}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[9px] text-[#c8c2b8] mt-1.5">Look up the session id above in Stripe&apos;s dashboard to refund or investigate a charge.</p>
+              </div>
+            </>
+          )}
 
           {/* Activity timeline */}
           <>

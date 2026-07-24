@@ -3,6 +3,7 @@
 import type { CSSProperties } from 'react'
 import type { Game, Player, Prediction } from '@/lib/types'
 import { BASE_CREDITS_PER_WIN, calcCreditsEarned } from '@/lib/game-logic'
+import { teamLogoUrl } from '@/lib/team-logo'
 
 interface Props {
   game: Game
@@ -24,15 +25,6 @@ const TEAM_COLORS: Record<string, string> = {
   UTA: '#002B5C', WAS: '#002B5C',
 }
 
-const ESPN_ID: Record<string, string> = {
-  ATL: 'atl', BOS: 'bos', BKN: 'bkn', CHA: 'cha', CHI: 'chi',
-  CLE: 'cle', DAL: 'dal', DEN: 'den', DET: 'det', GSW: 'gs',
-  HOU: 'hou', IND: 'ind', LAC: 'lac', LAL: 'lal', MEM: 'mem',
-  MIA: 'mia', MIL: 'mil', MIN: 'min', NOP: 'no',  NYK: 'ny',
-  OKC: 'okc', ORL: 'orl', PHI: 'phi', PHX: 'phx', POR: 'por',
-  SAC: 'sac', SAS: 'sa',  TOR: 'tor', UTA: 'uta', WAS: 'wsh',
-}
-
 const MINI_CARD_STYLE: Record<string, { gradient: string; border: string }> = {
   bronze:   { gradient: 'from-amber-600 via-amber-900 to-stone-950',   border: 'border-amber-500/60' },
   silver:   { gradient: 'from-slate-300 via-slate-600 to-slate-900',   border: 'border-slate-300/50' },
@@ -40,10 +32,6 @@ const MINI_CARD_STYLE: Record<string, { gradient: string; border: string }> = {
   platinum: { gradient: 'from-cyan-400 via-blue-700 to-indigo-950',    border: 'border-cyan-300/60' },
 }
 
-function teamLogo(abbr: string): string {
-  const id = ESPN_ID[abbr] ?? abbr.toLowerCase()
-  return `https://a.espncdn.com/combiner/i?img=/i/teamlogos/nba/500/${id}.png&h=80&w=80`
-}
 
 function teamColor(abbr: string) {
   return TEAM_COLORS[abbr] ?? '#1a1714'
@@ -137,7 +125,7 @@ export default function GameCard({ game, prediction, draftPick, wagerCard, doubl
         <div className="w-9 h-9 flex-shrink-0 flex items-center justify-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={teamLogo(abbr)}
+            src={teamLogoUrl(abbr)}
             alt={abbr}
             width={36}
             height={36}

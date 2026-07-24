@@ -1,13 +1,18 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
-import { supabase, USER_ID } from '@/lib/supabase'
+import { useEffect, useState, useCallback, useMemo } from 'react'
+import { supabase } from '@/lib/supabase'
+import { useUserId } from '@/lib/use-user-id'
+import { authedFetch } from '@/lib/authed-fetch'
 import { PAYOUTS, SAFETY_NET_STEPS, PHONE_RELIABILITY_DEFAULT } from '@/lib/trivia-logic'
 import { useCredits } from '@/lib/credits-context'
 import type { Player, Tier, ActionCardType } from '@/lib/types'
 import { TIER_LABEL } from '@/lib/game-logic'
+import { teamLogoUrl } from '@/lib/team-logo'
+import { lastNameFontSize, GOLD_HEX_BG, splitName } from '@/lib/card-utils'
 import { Tooltip } from '@/components/Tooltip'
 import { ActionCard } from '@/components/ActionCard'
+import { useLockBodyScroll } from '@/lib/use-lock-body-scroll'
 
 interface UserActionCardWithType {
   id: string
@@ -18,12 +23,12 @@ interface UserActionCardWithType {
 
 const CARD_STYLE: Record<Tier, {
   gradient: string; border: string; foil: string; foilClass: string
-  label: string; footer: string; glow: string
+  label: string; footer: string; glow: string; photoGlow: string
 }> = {
-  bronze:   { gradient: 'from-amber-600 via-amber-900 to-stone-950',  border: 'border-amber-500/80',  foil: 'from-amber-500/25 to-transparent',  foilClass: 'foil-sweep',          label: 'text-amber-300',  footer: 'from-stone-950',   glow: 'glow-bronze' },
-  silver:   { gradient: 'from-slate-300 via-slate-600 to-slate-900',  border: 'border-slate-300/70',  foil: 'from-slate-200/20 to-transparent',  foilClass: 'foil-sweep',          label: 'text-slate-200',  footer: 'from-slate-900',   glow: 'glow-silver' },
-  gold:     { gradient: 'from-yellow-400 via-yellow-800 to-amber-950', border: 'border-yellow-400/80', foil: 'from-yellow-300/30 to-transparent', foilClass: 'foil-sweep-gold',     label: 'text-yellow-200', footer: 'from-amber-950',   glow: 'glow-gold' },
-  platinum: { gradient: 'from-cyan-400 via-blue-700 to-indigo-950',   border: 'border-cyan-300/80',   foil: 'from-blue-200/25 to-transparent',   foilClass: 'foil-sweep-platinum', label: 'text-cyan-200',   footer: 'from-indigo-950',  glow: 'glow-platinum' },
+  bronze:   { gradient: 'from-amber-600 via-amber-900 to-stone-950',  border: 'border-amber-500/80',  foil: 'from-amber-500/25 to-transparent',  foilClass: '',                    label: 'text-amber-300',  footer: 'from-stone-950',   glow: 'shadow-sm', photoGlow: 'rgba(217,119,6,0.45)' },
+  silver:   { gradient: 'from-slate-300 via-slate-600 to-slate-900',  border: 'border-slate-300/70',  foil: 'from-slate-200/20 to-transparent',  foilClass: 'foil-sweep',          label: 'text-slate-200',  footer: 'from-slate-900',   glow: 'glow-silver', photoGlow: 'rgba(226,232,240,0.45)' },
+  gold:     { gradient: 'from-yellow-400 via-yellow-800 to-amber-950', border: 'border-yellow-400/80', foil: 'from-yellow-300/30 to-transparent', foilClass: 'foil-sweep-gold',     label: 'text-yellow-200', footer: 'from-amber-950',   glow: 'glow-gold', photoGlow: 'rgba(250,204,21,0.45)' },
+  platinum: { gradient: 'from-cyan-400 via-blue-700 to-indigo-950',   border: 'border-cyan-300/80',   foil: 'from-blue-200/25 to-transparent',   foilClass: 'foil-sweep-platinum', label: 'text-cyan-200',   footer: 'from-indigo-950',  glow: 'glow-platinum', photoGlow: 'rgba(34,211,238,0.45)' },
 }
 
 // Fallback display reliability when card has no rolled value (pre-feature cards)
@@ -63,6 +68,7 @@ const OPTION_LABELS: AnswerKey[] = ['a', 'b', 'c', 'd']
 const OPTION_LETTERS: Record<AnswerKey, string> = { a: 'A', b: 'B', c: 'C', d: 'D' }
 
 export default function TriviaPage() {
+  const { userId } = useUserId()
   const { setCredits } = useCredits()
   const [session, setSession]     = useState<TriviaSession | null>(null)
   const [questions, setQuestions] = useState<TriviaQuestion[]>([])
@@ -91,17 +97,17 @@ export default function TriviaPage() {
   const currentQ = questions[step - 1] ?? null
 
   const loadSession = useCallback(async () => {
-    const res = await fetch('/api/trivia/session')
+    const res = await authedFetch('/api/trivia/session')
     if (res.status === 409) {
       setStatus('generating')
       await Promise.all([1, 2, 3].map(diff =>
-        fetch('/api/trivia/generate', {
+        authedFetch('/api/trivia/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ difficulty: diff, count: 20 }),
         })
       ))
-      const retry = await fetch('/api/trivia/session')
+      const retry = await authedFetch('/api/trivia/session')
       const data = await retry.json()
       applySession(data)
     } else {
@@ -149,11 +155,12 @@ export default function TriviaPage() {
   }
 
   useEffect(() => {
+    if (!userId) return
     loadSession()
     supabase
       .from('user_cards')
       .select('id, quantity, reliability, player:players(*)')
-      .eq('user_id', USER_ID)
+      .eq('user_id', userId)
       .then(({ data }) => {
         const TIER_RANK: Record<string, number> = { platinum: 0, gold: 1, silver: 2, bronze: 3 }
         setOwnedCards(
@@ -169,13 +176,13 @@ export default function TriviaPage() {
     supabase
       .from('user_action_cards')
       .select('*, type:action_card_types(*)')
-      .eq('user_id', USER_ID)
+      .eq('user_id', userId)
       .eq('used', false)
       .then(({ data }) => {
         const cards = (data ?? []) as UserActionCardWithType[]
         setTriviaActionCards(cards.filter(c => c.type?.context === 'trivia'))
       })
-  }, [loadSession])
+  }, [loadSession, userId])
 
   // Reset timer when a new question appears (step change or skip)
   useEffect(() => {
@@ -216,7 +223,7 @@ export default function TriviaPage() {
     if (timeLeft !== 0 || status !== 'playing' || answerLoading || !session) return
     setAnswerLoading(true)
     setSelected(null)
-    fetch('/api/trivia/answer', {
+    authedFetch('/api/trivia/answer', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session_id: session.id, answer: 'timeout' }),
@@ -227,7 +234,7 @@ export default function TriviaPage() {
         setStatus('revealed')
         await new Promise(r => setTimeout(r, 2500))
         setCreditsEarned(data.credits_earned ?? 0)
-        if ((data.credits_earned ?? 0) > 0) setCredits(c => (c ?? 0) + data.credits_earned)
+        if (data.credits !== undefined && data.credits !== null) setCredits(data.credits)
         setStatus('lost')
         setAnswerLoading(false)
       })
@@ -260,7 +267,7 @@ export default function TriviaPage() {
     setAnswerLoading(true)
     clearTimerStorage()
 
-    const res = await fetch('/api/trivia/answer', {
+    const res = await authedFetch('/api/trivia/answer', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session_id: session.id, answer }),
@@ -276,20 +283,17 @@ export default function TriviaPage() {
       setCompletedStep(done)
       setSession(s => s ? { ...s, current_step: done, credits_floor: data.credits_floor } : s)
       await new Promise(r => setTimeout(r, 900))
+      if (data.credits !== undefined && data.credits !== null) setCredits(data.credits)
       if (data.status === 'won') {
         setCreditsEarned(PAYOUTS[15])
         setStatus('won')
-        setCredits(c => (c ?? 0) + PAYOUTS[15])
       } else {
-        if (SAFETY_NET_STEPS.has(done)) {
-          setCredits(c => (c ?? 0) + PAYOUTS[done])
-        }
         setStatus('correct_pause')
       }
     } else {
       setCreditsEarned(data.credits_floor ?? data.credits_earned)
       setStatus('lost')
-      if (data.credits_earned > 0) setCredits(c => (c ?? 0) + data.credits_earned)
+      if (data.credits !== undefined && data.credits !== null) setCredits(data.credits)
     }
     setAnswerLoading(false)
   }
@@ -297,7 +301,7 @@ export default function TriviaPage() {
   async function useLifeline(type: 'fifty' | 'phone' | 'audience', playerId?: string, reliability?: number | null) {
     if (!session || lifelineLoading) return
     setLifelineLoading(true)
-    const res = await fetch('/api/trivia/lifeline', {
+    const res = await authedFetch('/api/trivia/lifeline', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session_id: session.id, lifeline: type, player_id: playerId, reliability }),
@@ -322,14 +326,14 @@ export default function TriviaPage() {
 
   async function walkAway() {
     if (!session) return
-    const res = await fetch('/api/trivia/walkaway', {
+    const res = await authedFetch('/api/trivia/walkaway', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session_id: session.id }),
     })
     if (!res.ok) return
     const data = await res.json()
-    if ((data.topUp ?? 0) > 0) setCredits(c => (c ?? 0) + data.topUp)
+    if (data.credits !== undefined && data.credits !== null) setCredits(data.credits)
     setCreditsEarned(data.earned ?? 0)
     setStatus('walked_away')
   }
@@ -339,7 +343,7 @@ export default function TriviaPage() {
     const card = triviaActionCards.find(c => c.type.id === 'skip')
     if (!card) return
     setSkipLoading(true)
-    const res = await fetch('/api/trivia/skip', {
+    const res = await authedFetch('/api/trivia/skip', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session_id: session.id, action_card_id: card.id }),
@@ -365,7 +369,7 @@ export default function TriviaPage() {
     const newFloor = PAYOUTS[session.current_step] ?? 0
     if (newFloor <= (session.credits_floor ?? 0)) return
     setAnswerLoading(true)
-    const res = await fetch('/api/trivia/safety-net', {
+    const res = await authedFetch('/api/trivia/safety-net', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session_id: session.id, action_card_id: card.id }),
@@ -373,7 +377,7 @@ export default function TriviaPage() {
     const data = await res.json()
     if (data.new_floor !== undefined) {
       setSession(s => s ? { ...s, credits_floor: data.new_floor } : s)
-      if ((data.credits_awarded ?? 0) > 0) setCredits(c => (c ?? 0) + data.credits_awarded)
+      if (data.credits !== undefined && data.credits !== null) setCredits(data.credits)
       setTriviaActionCards(prev => prev.filter(c => c.id !== card.id))
       setSafetyNetPlayed(true)
     }
@@ -423,6 +427,18 @@ export default function TriviaPage() {
           : ''
     return (
       <div className="max-w-md mx-auto py-16 text-center space-y-4">
+        <a
+          href="/leaderboard"
+          className="flex items-center justify-between px-4 py-3 bg-white border border-[#e2ddd6] rounded-xl shadow-sm hover:border-amber-400/50 hover:bg-amber-50/30 transition-all group"
+        >
+          <div>
+            <p className="text-[9px] font-black uppercase tracking-[0.3em] text-amber-600/60 mb-0.5">Monthly</p>
+            <p className="text-xs font-black text-[#1a1714]">Trivia Leaderboard</p>
+          </div>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-[#c8c2b8] group-hover:text-amber-500 transition-colors">
+            <path d="M9 18l6-6-6-6"/>
+          </svg>
+        </a>
         <h1 className="text-2xl font-black text-[#1a1714]">{title}</h1>
         <p className="text-[#6b6259] text-sm">{msg}</p>
         {creditsEarned > 0 && (
@@ -433,7 +449,7 @@ export default function TriviaPage() {
         <p className="text-xs text-[#c8c2b8]">One game per day.</p>
         {/* DEV ONLY */}
         <button
-          onClick={async () => { await fetch('/api/trivia/session', { method: 'DELETE' }); window.location.reload() }}
+          onClick={async () => { await authedFetch('/api/trivia/session', { method: 'DELETE' }); window.location.reload() }}
           className="text-[10px] text-[#c8c2b8] hover:text-red-400 transition-colors"
         >
           reset for testing
@@ -462,7 +478,7 @@ export default function TriviaPage() {
         </div>
         {/* DEV ONLY */}
         <button
-          onClick={async () => { await fetch('/api/trivia/session', { method: 'DELETE' }); window.location.reload() }}
+          onClick={async () => { await authedFetch('/api/trivia/session', { method: 'DELETE' }); window.location.reload() }}
           className="text-[10px] text-[#c8c2b8] hover:text-red-400 transition-colors"
         >
           reset
@@ -476,39 +492,84 @@ export default function TriviaPage() {
           {/* LEFT: content */}
           <div className="flex-1 min-w-0 space-y-2.5">
 
+            {/* Leaderboard callout */}
+            <a
+              href="/leaderboard"
+              className="flex items-center justify-between px-4 py-3 bg-white border border-[#e2ddd6] rounded-xl shadow-sm hover:border-amber-400/50 hover:bg-amber-50/30 transition-all group"
+            >
+              <div>
+                <p className="text-[9px] font-black uppercase tracking-[0.3em] text-amber-600/60 mb-0.5">Monthly</p>
+                <p className="text-xs font-black text-[#1a1714]">Trivia Leaderboard</p>
+              </div>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-[#c8c2b8] group-hover:text-amber-500 transition-colors">
+                <path d="M9 18l6-6-6-6"/>
+              </svg>
+            </a>
+
             {/* Jackpot headline */}
             <div className="text-center py-6">
               <p className="text-[10px] font-black uppercase tracking-[0.4em] text-[#a39890] mb-2">Daily Jackpot</p>
               <p className="text-7xl font-black text-[#1a1714] leading-none tracking-tight">1,000</p>
               <p className="text-lg font-black text-amber-500 tracking-widest uppercase mt-1">credits</p>
               <p className="text-xs text-[#a39890] mt-3 max-w-xs mx-auto leading-relaxed">
-                Answer all 15 correctly. A wrong answer ends the game — you keep what you&apos;ve locked in.
+                Answer all 15 correctly. A wrong answer ends the game. You keep what you have locked in.
               </p>
             </div>
 
-              {/* Lifelines — 3 individual boxes */}
-              <p className="text-[9px] font-black uppercase tracking-widest text-[#a39890]">Lifelines</p>
+              {/* Lifelines — premium dark info cards */}
+              <p className="text-[9px] font-black uppercase tracking-[0.3em] text-[#a39890]">Lifelines</p>
               <div className="grid grid-cols-3 gap-2">
-                {[
-                  { name: '50 / 50', desc: 'Eliminate two wrong answers' },
-                  { name: 'Ask Coach', desc: 'See how the crowd would vote' },
-                  { name: 'Phone a Player', desc: 'Your card guesses the answer' },
-                ].map(l => (
-                  <div key={l.name} className="bg-white border border-[#e2ddd6] rounded-xl p-3 shadow-sm">
+                {([
+                  {
+                    name: '50 / 50',
+                    desc: 'Eliminate two wrong answers',
+                    icon: (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="w-full h-full">
+                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                        <line x1="4" y1="12" x2="8" y2="12" strokeWidth="1.5" strokeDasharray="2 2"/>
+                        <line x1="16" y1="12" x2="20" y2="12" strokeWidth="1.5" strokeDasharray="2 2"/>
+                      </svg>
+                    ),
+                  },
+                  {
+                    name: 'Ask Coach',
+                    desc: 'See how the crowd would vote',
+                    icon: (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="w-full h-full">
+                        <line x1="18" y1="20" x2="18" y2="10"/>
+                        <line x1="12" y1="20" x2="12" y2="4"/>
+                        <line x1="6"  y1="20" x2="6"  y2="14"/>
+                      </svg>
+                    ),
+                  },
+                  {
+                    name: 'Phone a Player',
+                    desc: 'Your card guesses the answer',
+                    icon: (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="w-full h-full">
+                        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.15 12 19.79 19.79 0 0 1 1.08 3.4 2 2 0 0 1 3.05 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/>
+                      </svg>
+                    ),
+                  },
+                ] as { name: string; desc: string; icon: React.ReactNode }[]).map(l => (
+                  <div key={l.name} className="rounded-xl bg-white border-2 border-[#e2ddd6] p-3 shadow-sm">
+                    <div className="w-5 h-5 text-amber-500 mb-2">{l.icon}</div>
                     <p className="text-[10px] font-black text-[#1a1714] leading-tight mb-1">{l.name}</p>
-                    <p className="text-[9px] text-[#a39890] leading-tight">{l.desc}</p>
+                    <p className="text-[8px] text-[#a39890] leading-snug">{l.desc}</p>
                   </div>
                 ))}
               </div>
 
               {/* Phone-a-player card picker */}
-              {ownedCards.length > 0 && (
-                <div className="bg-[#faf9f6] border border-[#e2ddd6] rounded-xl p-3">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-[#a39890] mb-1">Phone a Player</p>
-                  <p className="text-[10px] text-[#6b6259] mb-2 leading-relaxed">
-                    Pick a card as your lifeline. Higher tier = more reliable.
-                    {selectedPhoneCard && <span className="text-red-500/70"> Burns if you lose after using it.</span>}
-                  </p>
+              <div className="bg-[#faf9f6] border border-[#e2ddd6] rounded-xl p-3">
+                <p className="text-[9px] font-black uppercase tracking-widest text-[#a39890] mb-1">Phone a Player</p>
+                <p className="text-[10px] text-[#6b6259] mb-2 leading-relaxed">
+                  Pick a card as your lifeline. Higher tier = more reliable.
+                  {selectedPhoneCard && <span className="text-red-500/70"> Burns if you lose after using it.</span>}
+                </p>
+                {ownedCards.length === 0 ? (
+                  <p className="text-[10px] text-[#c8c2b8] italic">No cards in your collection yet.</p>
+                ) : (
                   <button
                     onClick={() => setShowCardPicker(true)}
                     className={`px-3 py-1.5 rounded-lg border text-[11px] font-black transition-colors ${
@@ -519,8 +580,8 @@ export default function TriviaPage() {
                   >
                     {selectedPhoneCard ? `📞 ${selectedPhoneCard.player.name}` : 'Choose a Card →'}
                   </button>
-                </div>
-              )}
+                )}
+              </div>
 
               {/* Start */}
               <div className="flex justify-center pt-2">
@@ -570,13 +631,12 @@ export default function TriviaPage() {
       )}
 
 
-      {/* ── Playing: two-column layout ── */}
+      {/* ── Playing ── */}
       {(status === 'playing' || status === 'revealed' || status === 'correct_pause') && currentQ && (
         <div className="flex gap-3 items-start">
 
-          {/* LEFT: question + answers — content pinned to bottom */}
+          {/* LEFT */}
           <div className="flex-1 min-w-0 flex flex-col gap-3">
-            <div className="flex-1" />
 
             {/* Question card */}
             <div className="bg-white border border-[#e2ddd6] rounded-2xl p-4 shadow-sm">
@@ -619,16 +679,17 @@ export default function TriviaPage() {
 
             {/* Audience result */}
             {audienceData && (
-              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3">
-                <p className="text-xs font-bold text-blue-700 mb-2">Coach&apos;s Read</p>
-                <div className="space-y-1">
+              <div className="relative overflow-hidden rounded-xl bg-[#0b0f1a] border border-indigo-500/20 p-3.5">
+                <div className="absolute inset-0 bg-[radial-gradient(ellipse_70%_50%_at_50%_0%,rgba(99,102,241,0.10),transparent_70%)] pointer-events-none" />
+                <p className="relative text-[8px] font-black uppercase tracking-[0.35em] text-indigo-300 mb-2.5">Coach&apos;s Read</p>
+                <div className="relative space-y-1.5">
                   {OPTION_LABELS.map(key => (
                     <div key={key} className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-blue-600 w-4">{key.toUpperCase()}</span>
-                      <div className="flex-1 bg-blue-100 rounded-full h-2">
-                        <div className="bg-blue-500 h-2 rounded-full transition-all" style={{ width: `${audienceData[key]}%` }} />
+                      <span className="text-[9px] font-black text-indigo-200 w-3">{key.toUpperCase()}</span>
+                      <div className="flex-1 bg-white/[0.05] rounded-full h-1.5 overflow-hidden">
+                        <div className="bg-gradient-to-r from-indigo-500 to-indigo-400 h-full rounded-full transition-all" style={{ width: `${audienceData[key]}%` }} />
                       </div>
-                      <span className="text-xs text-blue-600 font-bold w-8 text-right">{audienceData[key]}%</span>
+                      <span className="text-[9px] text-indigo-200 font-black w-7 text-right tabular-nums">{audienceData[key]}%</span>
                     </div>
                   ))}
                 </div>
@@ -637,13 +698,17 @@ export default function TriviaPage() {
 
             {/* Phone result */}
             {phoneResult && (
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex items-center justify-between gap-3">
-                <div className="text-sm">
-                  <span className="font-bold text-amber-800">{phoneResult.name}</span>
-                  <span className="text-amber-700"> says </span>
-                  <span className="font-black text-amber-800">{phoneResult.hint.toUpperCase()}</span>
+              <div className="relative overflow-hidden rounded-xl bg-[#0f0c08] border border-amber-500/25 p-3.5">
+                <div className="absolute inset-0 bg-[radial-gradient(ellipse_70%_50%_at_50%_0%,rgba(251,191,36,0.08),transparent_70%)] pointer-events-none" />
+                <p className="relative text-[8px] font-black uppercase tracking-[0.35em] text-amber-400 mb-1.5">Phone a Player</p>
+                <div className="relative flex items-center justify-between gap-3">
+                  <p className="text-sm leading-snug">
+                    <span className="font-bold text-white">{phoneResult.name}</span>
+                    <span className="text-white/60"> says </span>
+                    <span className="font-black text-amber-300">{phoneResult.hint.toUpperCase()}</span>
+                  </p>
+                  <span className="text-[9px] font-black uppercase tracking-wider text-amber-500/50 flex-shrink-0">{phoneResult.tier}</span>
                 </div>
-                <span className="text-[10px] text-amber-500/60 capitalize flex-shrink-0">{phoneResult.tier}</span>
               </div>
             )}
 
@@ -665,16 +730,118 @@ export default function TriviaPage() {
               ))}
             </div>
 
+            {/* Lifelines — horizontal strip */}
+            {status !== 'correct_pause' && (
+              <div className="flex gap-2">
+                {/* 50/50 */}
+                {(() => {
+                  const used = !!session?.lifeline_fifty_used
+                  const disabled = used || lifelineLoading || status === 'revealed'
+                  return (
+                    <button
+                      onClick={() => !disabled && useLifeline('fifty')}
+                      disabled={disabled}
+                      className={`flex-1 flex flex-col items-center gap-1.5 px-2 py-2.5 rounded-xl border-2 transition-all ${
+                        used
+                          ? 'opacity-30 cursor-not-allowed border-transparent bg-transparent'
+                          : 'bg-white border-[#e2ddd6] hover:border-amber-400/50 hover:bg-amber-50/40 active:scale-[0.97] shadow-sm'
+                      }`}
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-amber-500">
+                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                      </svg>
+                      <span className={`text-[9px] font-black ${used ? 'text-[#1a1714]/30 line-through' : 'text-[#1a1714]'}`}>50 / 50</span>
+                    </button>
+                  )
+                })()}
+                {/* Ask Coach */}
+                {(() => {
+                  const used = !!session?.lifeline_audience_used
+                  const disabled = used || lifelineLoading || status === 'revealed'
+                  return (
+                    <button
+                      onClick={() => !disabled && useLifeline('audience')}
+                      disabled={disabled}
+                      className={`flex-1 flex flex-col items-center gap-1.5 px-2 py-2.5 rounded-xl border-2 transition-all ${
+                        used
+                          ? 'opacity-30 cursor-not-allowed border-transparent bg-transparent'
+                          : 'bg-white border-[#e2ddd6] hover:border-amber-400/50 hover:bg-amber-50/40 active:scale-[0.97] shadow-sm'
+                      }`}
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-amber-500">
+                        <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
+                      </svg>
+                      <span className={`text-[9px] font-black ${used ? 'text-[#1a1714]/30 line-through' : 'text-[#1a1714]'}`}>Ask Coach</span>
+                    </button>
+                  )
+                })()}
+                {/* Phone a Player */}
+                {(() => {
+                  const used = !!session?.lifeline_phone_used
+                  const noCard = !selectedPhoneCard
+                  const canUse = !used && !noCard && !lifelineLoading && status !== 'revealed'
+                  return (
+                    <div className="flex-1 flex flex-col">
+                      <button
+                        onClick={() => {
+                          if (used || lifelineLoading || status === 'revealed') return
+                          if (noCard) { setShowCardPicker(true); return }
+                          useLifeline('phone', selectedPhoneCard!.player.id, selectedPhoneCard!.reliability)
+                        }}
+                        disabled={used || lifelineLoading || status === 'revealed'}
+                        className={`w-full flex flex-col items-center gap-1.5 px-2 py-2.5 rounded-xl border-2 transition-all ${
+                          used
+                            ? 'opacity-30 cursor-not-allowed border-transparent bg-transparent'
+                            : noCard
+                              ? 'bg-white border-dashed border-[#e2ddd6] hover:border-amber-400/50 hover:bg-amber-50/40 active:scale-[0.97] shadow-sm'
+                              : 'bg-white border-[#e2ddd6] hover:border-amber-400/50 hover:bg-amber-50/40 active:scale-[0.97] shadow-sm'
+                        }`}
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className={`w-4 h-4 ${canUse ? 'text-amber-500' : noCard ? 'text-amber-400/50' : 'text-amber-500'}`}>
+                          <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.15 12 19.79 19.79 0 0 1 1.08 3.4 2 2 0 0 1 3.05 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/>
+                        </svg>
+                        <span className={`text-[9px] font-black truncate ${used ? 'text-[#1a1714]/30 line-through' : noCard ? 'text-[#a39890]' : 'text-[#1a1714]'}`}>
+                          {used ? 'Phone' : noCard ? 'Pick card' : selectedPhoneCard!.player.name.split(' ').slice(-1)[0]}
+                        </span>
+                      </button>
+                      {selectedPhoneCard && !used && (
+                        <p className="text-[7px] text-red-500/60 text-center mt-0.5 leading-tight">burns if loss</p>
+                      )}
+                    </div>
+                  )
+                })()}
+              </div>
+            )}
+
+            {/* Skip action card — separate row */}
+            {status !== 'correct_pause' && triviaActionCards.some(c => c.type.id === 'skip') && (
+              <div className="flex justify-center">
+                {triviaActionCards
+                  .filter(c => c.type.id === 'skip')
+                  .slice(0, 1)
+                  .map(c => (
+                    <Tooltip key={c.id} text={c.type.description}>
+                      <ActionCard
+                        cardType={c.type}
+                        size="sm"
+                        disabled={skipLoading || answerLoading || status === 'revealed'}
+                        onClick={useSkip}
+                      />
+                    </Tooltip>
+                  ))}
+              </div>
+            )}
+
             {/* Beta: flag this question */}
             {(status === 'revealed' || status === 'correct_pause') && currentQ && (
               <div className="flex justify-end">
                 {flagged.has(currentQ.id) ? (
-                  <span className="text-[10px] text-[#a39890] font-bold">🚩 Flagged — thanks!</span>
+                  <span className="text-[10px] text-[#a39890] font-bold">🚩 Flagged. Thanks!</span>
                 ) : (
                   <button
                     onClick={async () => {
                       setFlagging(true)
-                      await fetch('/api/trivia/flag', {
+                      await authedFetch('/api/trivia/flag', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ question_id: currentQ.id, reason: '' }),
@@ -750,71 +917,8 @@ export default function TriviaPage() {
             )}
           </div>
 
-          {/* RIGHT: lifelines + vertical money ladder */}
-          <div className="w-36 flex-shrink-0 space-y-2">
-
-            {/* Lifelines */}
-            {status !== 'correct_pause' && (
-              <div className="bg-white border border-[#e2ddd6] rounded-2xl p-2.5 shadow-sm">
-                <p className="text-[9px] font-black uppercase tracking-widest text-[#a39890] text-center mb-2">Lifelines</p>
-                <div className="space-y-1.5">
-                  <button
-                    onClick={() => !session?.lifeline_fifty_used && useLifeline('fifty')}
-                    disabled={!!session?.lifeline_fifty_used || lifelineLoading || status === 'revealed'}
-                    className={lifelineUsed(session?.lifeline_fifty_used)}
-                  >
-                    50 / 50
-                  </button>
-                  <button
-                    onClick={() => !session?.lifeline_audience_used && useLifeline('audience')}
-                    disabled={!!session?.lifeline_audience_used || lifelineLoading || status === 'revealed'}
-                    className={lifelineUsed(session?.lifeline_audience_used)}
-                  >
-                    Ask Coach
-                  </button>
-                  <div className="space-y-0.5">
-                    <button
-                      onClick={() => {
-                        if (!session?.lifeline_phone_used && selectedPhoneCard && !lifelineLoading && status !== 'revealed') {
-                          useLifeline('phone', selectedPhoneCard.player.id, selectedPhoneCard.reliability)
-                        }
-                      }}
-                      disabled={!!session?.lifeline_phone_used || !selectedPhoneCard || lifelineLoading || status === 'revealed'}
-                      className={lifelineUsed(session?.lifeline_phone_used, !selectedPhoneCard)}
-                    >
-                      📞 {selectedPhoneCard ? selectedPhoneCard.player.name.split(' ').slice(-1)[0] : 'Phone'}
-                    </button>
-                    {selectedPhoneCard && !session?.lifeline_phone_used && (
-                      <p className="text-[8px] text-red-400/70 text-center leading-tight">burns if you lose</p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Action cards — shown as proper cards */}
-                {triviaActionCards.some(c => c.type.id === 'skip') && (
-                  <div className="mt-2 pt-2 border-t border-[#e2ddd6]">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-[#a39890] text-center mb-2">Cards</p>
-                    <div className="flex flex-wrap justify-center gap-1.5">
-                      {triviaActionCards
-                        .filter(c => c.type.id === 'skip')
-                        .slice(0, 1)
-                        .map(c => (
-                          <Tooltip key={c.id} text={c.type.description}>
-                            <ActionCard
-                              cardType={c.type}
-                              size="sm"
-                              disabled={skipLoading || answerLoading || status === 'revealed'}
-                              onClick={useSkip}
-                            />
-                          </Tooltip>
-                        ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Vertical money ladder — Q15 at top, Q1 at bottom */}
+          {/* RIGHT: money ladder */}
+          <div className="w-36 flex-shrink-0">
             <div className="bg-white border border-[#e2ddd6] rounded-2xl p-2 shadow-sm space-y-0.5">
               {Array.from({ length: 15 }, (_, i) => 15 - i).map(q => {
                 const payout = PAYOUTS[q]
@@ -830,24 +934,39 @@ export default function TriviaPage() {
                       </div>
                     )}
                     <div
-                      style={{ clipPath: 'polygon(8% 0%, 92% 0%, 100% 50%, 92% 100%, 8% 100%, 0% 50%)' }}
-                      className={`flex items-center justify-between px-5 py-[5px] transition-all ${
-                        isCurrent
-                          ? 'bg-amber-400'
-                          : isSafetyNet
-                            ? isPast ? 'bg-emerald-200' : 'bg-emerald-100'
+                      style={{
+                        clipPath: 'polygon(8% 0%, 92% 0%, 100% 50%, 92% 100%, 8% 100%, 0% 50%)',
+                        background: q === 15
+                          ? isCurrent
+                            ? 'linear-gradient(90deg,#b8860b,#ffd700,#daa520)'
                             : isPast
-                              ? 'bg-[#ddd9d3]'
-                              : 'bg-[#ede9e4]'
+                              ? 'linear-gradient(90deg,#9a7209,#c9a227,#b8860b)'
+                              : 'linear-gradient(90deg,#92680a,#d4a017,#a67c10)'
+                          : undefined,
+                      }}
+                      className={`flex items-center justify-between px-5 py-[5px] transition-all ${
+                        q === 15
+                          ? ''
+                          : isCurrent
+                            ? 'bg-amber-400'
+                            : isSafetyNet
+                              ? isPast ? 'bg-emerald-200' : 'bg-emerald-100'
+                              : isPast
+                                ? 'bg-[#ddd9d3]'
+                                : 'bg-[#ede9e4]'
                       }`}
                     >
                       <span className={`text-[9px] font-bold tabular-nums ${
-                        isCurrent ? 'text-amber-900' : isSafetyNet ? 'text-emerald-700' : isPast ? 'text-[#b8b2a8]' : 'text-[#a39890]'
+                        q === 15
+                          ? 'text-yellow-100'
+                          : isCurrent ? 'text-amber-900' : isSafetyNet ? 'text-emerald-700' : isPast ? 'text-[#b8b2a8]' : 'text-[#a39890]'
                       }`}>
                         {q}
                       </span>
                       <span className={`text-[10px] font-black tabular-nums ${
-                        isCurrent ? 'text-white' : isSafetyNet ? 'text-emerald-800' : isPast ? 'text-[#b8b2a8]' : 'text-[#1a1714]'
+                        q === 15
+                          ? 'text-white drop-shadow-sm'
+                          : isCurrent ? 'text-white' : isSafetyNet ? 'text-emerald-800' : isPast ? 'text-[#b8b2a8]' : 'text-[#1a1714]'
                       }`}>
                         {payout.toLocaleString()}
                       </span>
@@ -875,49 +994,86 @@ export default function TriviaPage() {
 function FullCard({ player, isSelected, reliability }: { player: Player; isSelected: boolean; reliability?: number | null }) {
   const s = CARD_STYLE[player.tier]
   const isPlatinum = player.tier === 'platinum'
+  const isGold = player.tier === 'gold'
+  const { first, last } = splitName(player.name)
   const initials = player.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
   return (
-    <div className={`w-full h-full relative rounded-xl border-2 overflow-hidden bg-gradient-to-b ${s.gradient} ${s.border} ${s.glow} ${isSelected ? 'ring-2 ring-amber-400 ring-offset-2' : ''}`}>
+    <div className={`relative w-full aspect-[5/7] rounded-xl border-2 overflow-hidden bg-gradient-to-b ${s.gradient} ${s.border} ${s.glow} ${isSelected ? 'ring-2 ring-amber-400 ring-offset-2 ring-offset-black' : ''}`}>
       <div className={`absolute inset-0 bg-gradient-to-br ${s.foil} pointer-events-none`} />
       <div className={`${s.foilClass} absolute inset-0`} />
-      {isPlatinum && <div className="holo-overlay" />}
-      <div className="absolute inset-[2px] rounded-[9px] border border-white/[0.07] pointer-events-none z-10" />
+      {isPlatinum && (
+        <>
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              background: 'repeating-conic-gradient(from 0deg at 50% 45%, rgba(180,230,255,0.10) 0deg 11deg, rgba(0,10,60,0.06) 11deg 22deg)',
+              mixBlendMode: 'screen',
+            }}
+          />
+          <div
+            className="absolute inset-0 pointer-events-none opacity-[0.22]"
+            style={{
+              backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E\")",
+              backgroundSize: '200px 200px',
+              mixBlendMode: 'overlay',
+            }}
+          />
+          <div className="holo-overlay" />
+        </>
+      )}
+      {isGold && (
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            backgroundImage: GOLD_HEX_BG,
+            backgroundSize: '10.4px 18px',
+            mixBlendMode: 'overlay',
+            opacity: 0.6,
+          }}
+        />
+      )}
+      <div className="absolute inset-[3px] rounded-[10px] border border-white/[0.07] pointer-events-none z-10" />
 
-      {/* Top banner */}
-      <div className="absolute top-0 inset-x-0 z-20 bg-black/50 flex items-center justify-between gap-1 px-2 py-1.5">
+      {/* Top banner — matches PlayerBinder exactly */}
+      <div className="absolute top-0 inset-x-0 z-20 bg-black/50 flex items-center justify-between gap-1 px-1.5 py-1">
         {reliability != null ? (
-          <span className="bg-white/25 rounded-full px-2 py-px text-[8px] font-black text-white leading-none">
+          <span className="bg-white/25 rounded-full px-1.5 py-px text-[7px] font-black text-white leading-none">
             {reliability}%
           </span>
         ) : (
           <span />
         )}
-        <span className={`rounded-full px-2 py-px text-[7px] font-black uppercase leading-none bg-white/15 ${s.label} ${isPlatinum ? 'platinum-shimmer' : ''}`}>
-          {TIER_LABEL[player.tier]}
+        <span className={`text-[7px] font-black ${s.label} ${isPlatinum ? 'platinum-shimmer' : ''}`}>
+          {player.multiplier}×
         </span>
       </div>
 
-      <div className="absolute inset-x-0 top-[26px] bottom-10 overflow-hidden">
+      <div className="absolute inset-x-0 top-[22px] bottom-10 overflow-hidden">
         {player.image_url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={player.image_url} alt={player.name} className="w-full h-full object-cover object-top"
+            style={{ filter: `drop-shadow(0 0 4px ${s.photoGlow}) drop-shadow(0 0 10px ${s.photoGlow})` }}
             onError={e => { (e.target as HTMLImageElement).style.opacity = '0' }} />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
-            <span className="text-4xl font-black text-white/15 select-none">{initials}</span>
+            <span className="text-3xl font-black text-white/15 select-none">{initials}</span>
           </div>
         )}
       </div>
 
-      <div className={`absolute bottom-0 inset-x-0 h-16 bg-gradient-to-t ${s.footer} to-transparent`} />
+      <div className={`absolute bottom-0 inset-x-0 h-20 bg-gradient-to-t ${s.footer} to-transparent`} />
 
-      <div className="absolute bottom-0 inset-x-0 px-2 pb-2 z-20">
-        <div className="text-white font-black text-[10px] uppercase tracking-wide leading-tight truncate drop-shadow-lg">
-          {player.name}
-        </div>
-        <div className="flex items-center justify-between mt-0.5">
-          <span className="text-white/50 text-[8px] uppercase">{player.team_abbr}</span>
-          <span className={`text-[9px] font-black ${s.label}`}>{player.multiplier}×</span>
+      <div className="absolute bottom-0 inset-x-0 px-1.5 pb-0.5 z-20 flex items-end justify-between">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={teamLogoUrl(player.team_abbr)}
+          alt={player.team_abbr}
+          className="w-7 h-7 object-contain opacity-85 flex-shrink-0"
+          style={{ filter: 'drop-shadow(0 0 3px rgba(255,255,255,0.9)) drop-shadow(0 0 7px rgba(255,255,255,0.55))' }}
+        />
+        <div className="text-right min-w-0">
+          {first && <div className="text-white/70 text-[8px] font-bold uppercase tracking-wider leading-none drop-shadow">{first}</div>}
+          <div className="text-white font-black uppercase tracking-wide leading-tight drop-shadow-lg" style={{ fontSize: lastNameFontSize(last, 14) }}>{last}</div>
         </div>
       </div>
 
@@ -928,102 +1084,120 @@ function FullCard({ player, isSelected, reliability }: { player: Player; isSelec
 
 type TierFilter = 'all' | Tier
 
-function cardSpreadSize(n: number): { w: number; h: number } {
-  const w = n <= 2 ? 160 : n <= 4 ? 140 : n <= 8 ? 118 : n <= 14 ? 98 : 82
-  return { w, h: Math.round(w * 7 / 5) }
-}
+type PhoneCard = { player: Player; reliability: number | null; copyKey: string }
 
 function PhoneCardOverlay({
   cards, selectedCard, onSelect, onClose,
 }: {
-  cards: { player: Player; reliability: number | null; copyKey: string }[]
-  selectedCard: { player: Player; reliability: number | null; copyKey: string } | null
-  onSelect: (card: { player: Player; reliability: number | null; copyKey: string } | null) => void
+  cards: PhoneCard[]
+  selectedCard: PhoneCard | null
+  onSelect: (card: PhoneCard | null) => void
   onClose: () => void
 }) {
   const [tierFilter, setTierFilter] = useState<TierFilter>('all')
+  const [expandedPlayerId, setExpandedPlayerId] = useState<string | null>(null)
+  useLockBodyScroll()
 
   const filteredCards = tierFilter === 'all' ? cards : cards.filter(c => c.player.tier === tierFilter)
 
-  const { w: cardW, h: cardH } = cardSpreadSize(filteredCards.length)
-  const padding = 48
-  const maxSpread = typeof window !== 'undefined' ? window.innerWidth - padding : 360
-  const step = filteredCards.length <= 1
-    ? 0
-    : Math.min(Math.round(cardW * 0.82), Math.floor((maxSpread - cardW) / (filteredCards.length - 1)))
-  const fanW = filteredCards.length <= 1 ? cardW : step * (filteredCards.length - 1) + cardW
-  const liftPx = Math.round(cardH * 0.14)
+  // Dedupe by player — group copies together
+  const grouped = useMemo(() => {
+    const map = new Map<string, { player: Player; copies: { reliability: number | null; copyKey: string }[] }>()
+    for (const card of filteredCards) {
+      const entry = map.get(card.player.id) ?? { player: card.player, copies: [] }
+      entry.copies.push({ reliability: card.reliability, copyKey: card.copyKey })
+      map.set(card.player.id, entry)
+    }
+    return Array.from(map.values())
+  }, [filteredCards])
 
   const availableTiers = (['platinum', 'gold', 'silver', 'bronze'] as Tier[]).filter(t =>
     cards.some(c => c.player.tier === t)
   )
 
-  return (
-    <div className="fixed inset-0 z-50 bg-black/70 flex flex-col" onClick={onClose}>
-      {/* Header */}
-      <div className="px-5 pt-7 pb-4 flex-shrink-0" onClick={e => e.stopPropagation()}>
-        <p className="text-white/40 text-[10px] font-black uppercase tracking-widest mb-0.5">Phone a Player</p>
-        <p className="text-white text-xl font-black leading-tight">Choose Your Lifeline</p>
-        <p className="text-white/50 text-xs mt-1">
-          {selectedCard
-            ? `${selectedCard.player.name} · ${selectedCard.reliability ?? RELIABILITY_FALLBACK[selectedCard.player.tier]}% reliable`
-            : 'Tap a card — or play without one'}
-        </p>
+  const expandedGroup = expandedPlayerId ? grouped.find(g => g.player.id === expandedPlayerId) ?? null : null
 
-        {availableTiers.length > 1 && (
-          <div className="flex items-center gap-1.5 flex-wrap mt-3">
-            <button
-              onClick={() => setTierFilter('all')}
-              className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold transition-colors ${
-                tierFilter === 'all' ? 'bg-white text-[#1a1714] border-white' : 'text-white/50 border-white/20 hover:border-white/40'
-              }`}
-            >
-              All ({cards.length})
-            </button>
-            {availableTiers.map(t => {
-              const count = cards.filter(c => c.player.tier === t).length
-              return (
-                <button
-                  key={t}
-                  onClick={() => setTierFilter(t)}
-                  className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold capitalize transition-colors ${
-                    tierFilter === t ? 'bg-white text-[#1a1714] border-white' : 'text-white/50 border-white/20 hover:border-white/40'
-                  }`}
-                >
-                  {t === 'platinum' ? 'Plat' : t.charAt(0).toUpperCase() + t.slice(1)} ({count})
-                </button>
-              )
-            })}
-          </div>
-        )}
+  function handleCardTap(group: { player: Player; copies: { reliability: number | null; copyKey: string }[] }) {
+    if (group.copies.length === 1) {
+      const copy = group.copies[0]
+      const alreadySelected = selectedCard?.copyKey === copy.copyKey
+      onSelect(alreadySelected ? null : { player: group.player, reliability: copy.reliability, copyKey: copy.copyKey })
+    } else {
+      setExpandedPlayerId(prev => prev === group.player.id ? null : group.player.id)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-[#0a0a0a] flex flex-col" onClick={onClose}>
+      {/* Header */}
+      <div
+        className="w-full flex-shrink-0 relative overflow-hidden"
+        style={{ background: 'linear-gradient(to bottom, rgba(180,130,0,0.18) 0%, transparent 100%)' }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Gold top accent line */}
+        <div className="absolute top-0 inset-x-0 h-px" style={{ background: 'linear-gradient(90deg, transparent, #FFD700, transparent)' }} />
+
+        <div className="max-w-4xl mx-auto px-5 pt-7 pb-4">
+          <p className="text-[10px] font-black uppercase tracking-[0.35em] mb-1" style={{ color: '#FFD700' }}>Phone a Player</p>
+          <p className="text-white text-2xl font-black leading-tight">Choose Your Lifeline</p>
+          <p className="text-white/60 text-xs mt-1.5">
+            {selectedCard
+              ? `${selectedCard.player.name} · ${selectedCard.reliability ?? RELIABILITY_FALLBACK[selectedCard.player.tier]}% reliable`
+              : 'Tap a card, or play without one'}
+          </p>
+
+          {availableTiers.length > 1 && (
+            <div className="flex items-center gap-1.5 flex-wrap mt-3">
+              <button
+                onClick={() => setTierFilter('all')}
+                className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold transition-colors ${
+                  tierFilter === 'all' ? 'border-[#FFD700] text-[#FFD700]' : 'text-white/50 border-white/20 hover:border-white/40'
+                }`}
+              >
+                All ({grouped.length})
+              </button>
+              {availableTiers.map(t => {
+                const count = grouped.filter(g => g.player.tier === t).length
+                return (
+                  <button key={t} onClick={() => setTierFilter(t)}
+                    className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold capitalize transition-colors ${
+                      tierFilter === t ? 'border-[#FFD700] text-[#FFD700]' : 'text-white/50 border-white/20 hover:border-white/40'
+                    }`}
+                  >
+                    {t === 'platinum' ? 'Plat' : t.charAt(0).toUpperCase() + t.slice(1)} ({count})
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Card spread */}
-      <div className="flex-1 flex items-center justify-center" onClick={e => e.stopPropagation()}>
-        {filteredCards.length === 0 ? (
-          <p className="text-white/40 text-sm">No {tierFilter} cards.</p>
+      {/* Scrollable card grid — same layout as collection */}
+      <div className="flex-1 overflow-y-auto" onClick={e => e.stopPropagation()}>
+        {grouped.length === 0 ? (
+          <p className="text-white/40 text-sm text-center py-8">No {tierFilter} cards.</p>
         ) : (
-          <div style={{ position: 'relative', width: fanW, height: cardH + liftPx }}>
-            {filteredCards.map((card, i) => {
-              const isSelected = selectedCard?.copyKey === card.copyKey
+          <div className="max-w-4xl mx-auto grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2 px-4 py-2">
+            {grouped.map(group => {
+              const isSelected = selectedCard?.player.id === group.player.id
+              const bestReliability = group.copies.reduce<number | null>((best, c) => {
+                if (c.reliability === null) return best
+                return best === null ? c.reliability : Math.max(best, c.reliability)
+              }, null)
               return (
                 <button
-                  key={`${card.player.id}-${i}`}
-                  style={{
-                    position: 'absolute',
-                    left: step * i,
-                    top: 0,
-                    width: cardW,
-                    height: cardH,
-                    zIndex: isSelected ? filteredCards.length + 10 : i + 1,
-                    transform: isSelected
-                      ? `translateY(-${liftPx}px) scale(1.04)`
-                      : 'translateY(0) scale(1)',
-                    transition: 'transform 0.15s ease',
-                  }}
-                  onClick={() => onSelect(isSelected ? null : card)}
+                  key={group.player.id}
+                  onClick={() => handleCardTap(group)}
+                  className="relative aspect-[5/7] rounded-xl overflow-hidden"
                 >
-                  <FullCard player={card.player} isSelected={isSelected} reliability={card.reliability} />
+                  <FullCard player={group.player} isSelected={isSelected} reliability={bestReliability} />
+                  {group.copies.length > 1 && (
+                    <div className="absolute top-6 right-1 z-30 w-8 h-8 rounded-full bg-black/70 border border-white/20 flex items-center justify-center pointer-events-none">
+                      <span className="text-[10px] font-black text-white leading-none">×{group.copies.length}</span>
+                    </div>
+                  )}
                 </button>
               )
             })}
@@ -1036,9 +1210,10 @@ function PhoneCardOverlay({
         <button
           onClick={onClose}
           disabled={!selectedCard}
-          className={`w-64 py-3 rounded-xl text-sm font-black transition-all ${
+          style={selectedCard ? { background: 'linear-gradient(90deg,#b8860b,#ffd700,#daa520)', color: '#1a1400' } : undefined}
+          className={`w-64 py-3 rounded-xl text-sm font-black transition-all shadow-lg ${
             selectedCard
-              ? 'bg-white text-[#1a1714] hover:bg-white/90'
+              ? 'hover:brightness-110'
               : 'bg-white/10 text-white/25 cursor-not-allowed'
           }`}
         >
@@ -1046,11 +1221,49 @@ function PhoneCardOverlay({
         </button>
         <button
           onClick={() => { onSelect(null); onClose() }}
-          className="text-white/40 text-xs font-semibold hover:text-white/60 transition-colors"
+          className="text-white/50 text-xs font-semibold hover:text-white/70 transition-colors"
         >
           Play Without Lifeline
         </button>
       </div>
+
+      {/* Copy picker sheet */}
+      {expandedGroup && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/60 flex flex-col justify-end"
+          onClick={() => setExpandedPlayerId(null)}
+        >
+          <div
+            className="bg-[#1a1714] rounded-t-3xl px-5 pt-5 pb-10"
+            onClick={e => e.stopPropagation()}
+          >
+            <p className="text-white/40 text-[10px] font-black uppercase tracking-widest mb-0.5">Choose Copy</p>
+            <p className="text-white font-black text-lg mb-4">{expandedGroup.player.name}</p>
+            <div className="flex gap-3 overflow-x-auto pb-1">
+              {expandedGroup.copies.map((copy, i) => {
+                const isSelected = selectedCard?.copyKey === copy.copyKey
+                return (
+                  <button
+                    key={copy.copyKey}
+                    onClick={() => {
+                      onSelect(isSelected ? null : { player: expandedGroup.player, reliability: copy.reliability, copyKey: copy.copyKey })
+                      setExpandedPlayerId(null)
+                    }}
+                    className="flex-shrink-0 flex flex-col items-center gap-1.5"
+                  >
+                    <div className="w-28 aspect-[5/7] rounded-xl overflow-hidden">
+                      <FullCard player={expandedGroup.player} isSelected={isSelected} reliability={copy.reliability} />
+                    </div>
+                    <p className="text-white/50 text-[10px] font-semibold tabular-nums">
+                      Copy {i + 1} · {copy.reliability ?? RELIABILITY_FALLBACK[expandedGroup.player.tier]}%
+                    </p>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

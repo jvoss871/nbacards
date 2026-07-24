@@ -1,8 +1,10 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { PicksSkeleton } from '@/components/Skeleton'
-import { supabase, USER_ID } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase'
+import { useUserId } from '@/lib/use-user-id'
+import { authedFetch } from '@/lib/authed-fetch'
 import type { Game, Player, Prediction, Tier, ActionCardType } from '@/lib/types'
 
 interface UserActionCardWithType {
@@ -12,18 +14,22 @@ interface UserActionCardWithType {
   type: ActionCardType
 }
 import { calcCreditsEarned, availableCardsForTeam, TIER_LABEL } from '@/lib/game-logic'
+import { teamLogoUrl } from '@/lib/team-logo'
+import { lastNameFontSize, GOLD_HEX_BG, splitName } from '@/lib/card-utils'
 import GameCard from '@/components/GameCard'
 import { ActionCard } from '@/components/ActionCard'
+import { OnboardingCallout } from '@/components/OnboardingCallout'
+import { useLockBodyScroll } from '@/lib/use-lock-body-scroll'
 import { useCredits } from '@/lib/credits-context'
 
-function getLocalDateStr(offset = 0): string {
+function getETDateStr(offset = 0): string {
   const d = new Date()
   d.setDate(d.getDate() + offset)
-  return d.toISOString().split('T')[0]
+  return d.toLocaleDateString('sv-SE', { timeZone: 'America/New_York' })
 }
 
-const today = getLocalDateStr(0)
-const weekDates = Array.from({ length: 7 }, (_, i) => getLocalDateStr(i))
+const today = getETDateStr(0)
+const weekDates = Array.from({ length: 7 }, (_, i) => getETDateStr(i))
 
 function formatDayParts(dateStr: string): { label: string; date: string } {
   const d = new Date(dateStr + 'T12:00:00')
@@ -32,18 +38,18 @@ function formatDayParts(dateStr: string): { label: string; date: string } {
                   'July', 'August', 'September', 'October', 'November', 'December']
   const date = `${months[d.getMonth()]} ${d.getDate()}`
   if (dateStr === today) return { label: 'Today', date }
-  if (dateStr === getLocalDateStr(1)) return { label: 'Tomorrow', date }
+  if (dateStr === getETDateStr(1)) return { label: 'Tomorrow', date }
   return { label: days[d.getDay()], date }
 }
 
 const CARD_STYLE: Record<Tier, {
   gradient: string; border: string; foil: string; foilClass: string
-  label: string; footer: string; glow: string
+  label: string; footer: string; glow: string; photoGlow: string
 }> = {
-  bronze:   { gradient: 'from-amber-600 via-amber-900 to-stone-950',  border: 'border-amber-500/80',  foil: 'from-amber-500/25 to-transparent',  foilClass: 'foil-sweep',          label: 'text-amber-300',  footer: 'from-stone-950',   glow: 'glow-bronze' },
-  silver:   { gradient: 'from-slate-300 via-slate-600 to-slate-900',  border: 'border-slate-300/70',  foil: 'from-slate-200/20 to-transparent',  foilClass: 'foil-sweep',          label: 'text-slate-200',  footer: 'from-slate-900',   glow: 'glow-silver' },
-  gold:     { gradient: 'from-yellow-400 via-yellow-800 to-amber-950', border: 'border-yellow-400/80', foil: 'from-yellow-300/30 to-transparent', foilClass: 'foil-sweep-gold',     label: 'text-yellow-200', footer: 'from-amber-950',   glow: 'glow-gold' },
-  platinum: { gradient: 'from-cyan-400 via-blue-700 to-indigo-950',   border: 'border-cyan-300/80',   foil: 'from-blue-200/25 to-transparent',   foilClass: 'foil-sweep-platinum', label: 'text-cyan-200',   footer: 'from-indigo-950',  glow: 'glow-platinum' },
+  bronze:   { gradient: 'from-amber-600 via-amber-900 to-stone-950',  border: 'border-amber-500/80',  foil: 'from-amber-500/25 to-transparent',  foilClass: '',                    label: 'text-amber-300',  footer: 'from-stone-950',   glow: 'shadow-sm', photoGlow: 'rgba(217,119,6,0.45)' },
+  silver:   { gradient: 'from-slate-300 via-slate-600 to-slate-900',  border: 'border-slate-300/70',  foil: 'from-slate-200/20 to-transparent',  foilClass: 'foil-sweep',          label: 'text-slate-200',  footer: 'from-slate-900',   glow: 'glow-silver', photoGlow: 'rgba(226,232,240,0.45)' },
+  gold:     { gradient: 'from-yellow-400 via-yellow-800 to-amber-950', border: 'border-yellow-400/80', foil: 'from-yellow-300/30 to-transparent', foilClass: 'foil-sweep-gold',     label: 'text-yellow-200', footer: 'from-amber-950',   glow: 'glow-gold', photoGlow: 'rgba(250,204,21,0.45)' },
+  platinum: { gradient: 'from-cyan-400 via-blue-700 to-indigo-950',   border: 'border-cyan-300/80',   foil: 'from-blue-200/25 to-transparent',   foilClass: 'foil-sweep-platinum', label: 'text-cyan-200',   footer: 'from-indigo-950',  glow: 'glow-platinum', photoGlow: 'rgba(34,211,238,0.45)' },
 }
 
 // Card dimensions for the wager fan (px)
@@ -60,6 +66,7 @@ function fanRotations(n: number): number[] {
   )
 }
 
+
 function WagerCard({ player, isSelected, rotation, zIndex, onSelect }: {
   player: Player
   isSelected: boolean
@@ -69,7 +76,9 @@ function WagerCard({ player, isSelected, rotation, zIndex, onSelect }: {
 }) {
   const s = CARD_STYLE[player.tier]
   const isPlatinum = player.tier === 'platinum'
+  const isGold = player.tier === 'gold'
   const initials = player.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
+  const { first, last } = splitName(player.name)
 
   return (
     <button
@@ -89,29 +98,60 @@ function WagerCard({ player, isSelected, rotation, zIndex, onSelect }: {
         transition: 'transform 0.15s ease',
       }}
       className={`relative rounded-xl border-2 overflow-hidden bg-gradient-to-b ${s.gradient} ${s.border} ${s.glow} ${
-        isSelected ? 'ring-2 ring-amber-400 ring-offset-2' : ''
+        isSelected ? 'ring-2 ring-amber-400 ring-offset-2 ring-offset-black' : ''
       }`}
     >
       <div className={`absolute inset-0 bg-gradient-to-br ${s.foil} pointer-events-none`} />
       <div className={`${s.foilClass} absolute inset-0`} />
-      {isPlatinum && <div className="holo-overlay" />}
+      {isPlatinum && (
+        <>
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              background: 'repeating-conic-gradient(from 0deg at 50% 45%, rgba(180,230,255,0.10) 0deg 11deg, rgba(0,10,60,0.06) 11deg 22deg)',
+              mixBlendMode: 'screen',
+            }}
+          />
+          <div
+            className="absolute inset-0 pointer-events-none opacity-[0.22]"
+            style={{
+              backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E\")",
+              backgroundSize: '200px 200px',
+              mixBlendMode: 'overlay',
+            }}
+          />
+          <div className="holo-overlay" />
+        </>
+      )}
+      {isGold && (
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            backgroundImage: GOLD_HEX_BG,
+            backgroundSize: '10.4px 18px',
+            mixBlendMode: 'overlay',
+            opacity: 0.6,
+          }}
+        />
+      )}
       <div className="absolute inset-[2px] rounded-[9px] border border-white/[0.07] pointer-events-none z-10" />
 
       {/* Top banner */}
       <div className="absolute top-0 inset-x-0 z-20 bg-black/50 flex items-center justify-between gap-1 px-1.5 py-1">
         <span className="text-[6px] font-bold text-white/30 uppercase tracking-[0.2em]">CardPicks</span>
-        <span className={`rounded-full px-1.5 py-px text-[6px] font-black uppercase leading-none bg-white/15 ${s.label} ${isPlatinum ? 'platinum-shimmer' : ''}`}>
-          {TIER_LABEL[player.tier]}
+        <span className={`text-[7px] font-black ${s.label} ${isPlatinum ? 'platinum-shimmer' : ''}`}>
+          {player.multiplier}×
         </span>
       </div>
 
-      <div className="absolute inset-x-0 top-[20px] bottom-8 overflow-hidden">
+      <div className="absolute inset-x-0 top-[20px] bottom-14 overflow-hidden">
         {player.image_url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={player.image_url}
             alt={player.name}
             className="w-full h-full object-cover object-top"
+            style={{ filter: `drop-shadow(0 0 4px ${s.photoGlow}) drop-shadow(0 0 10px ${s.photoGlow})` }}
             onError={e => { (e.target as HTMLImageElement).style.opacity = '0' }}
           />
         ) : (
@@ -121,15 +161,19 @@ function WagerCard({ player, isSelected, rotation, zIndex, onSelect }: {
         )}
       </div>
 
-      <div className={`absolute bottom-0 inset-x-0 h-12 bg-gradient-to-t ${s.footer} to-transparent`} />
+      <div className={`absolute bottom-0 inset-x-0 h-16 bg-gradient-to-t ${s.footer} to-transparent`} />
 
-      <div className="absolute bottom-0 inset-x-0 px-1.5 pb-1.5 z-20">
-        <div className="text-white font-black text-[8px] uppercase tracking-wide leading-tight truncate drop-shadow-lg">
-          {player.name}
-        </div>
-        <div className="flex items-center justify-between mt-0.5">
-          <span className="text-white/50 text-[6px] uppercase">{player.team_abbr}</span>
-          <span className={`text-[7px] font-black ${s.label}`}>{player.multiplier}×</span>
+      <div className="absolute bottom-0 inset-x-0 px-1.5 pb-0.5 z-20 flex items-end justify-between">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={teamLogoUrl(player.team_abbr)}
+          alt={player.team_abbr}
+          className="w-7 h-7 object-contain opacity-85 flex-shrink-0"
+          style={{ filter: 'drop-shadow(0 0 3px rgba(255,255,255,0.9)) drop-shadow(0 0 7px rgba(255,255,255,0.55))' }}
+        />
+        <div className="text-right min-w-0">
+          {first && <div className="text-white/70 text-[8px] font-bold uppercase tracking-wider leading-none">{first}</div>}
+          <div className="text-white font-black uppercase tracking-wide leading-tight drop-shadow-lg" style={{ fontSize: lastNameFontSize(last, 14) }}>{last}</div>
         </div>
       </div>
 
@@ -146,16 +190,48 @@ const TIER_REL_DEFAULT: Record<Tier, number> = { platinum: 90, gold: 75, silver:
 function CardFace({ player, isSelected, compact, reliability }: { player: Player; isSelected?: boolean; compact?: boolean; reliability?: number | null }) {
   const s = CARD_STYLE[player.tier]
   const isPlatinum = player.tier === 'platinum'
+  const isGold = player.tier === 'gold'
   const initials = player.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
+  const { first, last } = splitName(player.name)
   return (
-    <div className={`w-full h-full relative rounded-2xl border-2 overflow-hidden bg-gradient-to-b ${s.gradient} ${s.border} ${s.glow} ${isSelected ? 'ring-4 ring-amber-400 ring-offset-2' : ''}`}>
+    <div className={`w-full h-full relative rounded-2xl border-2 overflow-hidden bg-gradient-to-b ${s.gradient} ${s.border} ${s.glow} ${isSelected ? 'ring-4 ring-amber-400 ring-offset-2 ring-offset-black' : ''}`}>
       <div className={`absolute inset-0 bg-gradient-to-br ${s.foil} pointer-events-none`} />
       <div className={`${s.foilClass} absolute inset-0`} />
-      {isPlatinum && <div className="holo-overlay" />}
+      {isPlatinum && (
+        <>
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              background: 'repeating-conic-gradient(from 0deg at 50% 45%, rgba(180,230,255,0.10) 0deg 11deg, rgba(0,10,60,0.06) 11deg 22deg)',
+              mixBlendMode: 'screen',
+            }}
+          />
+          <div
+            className="absolute inset-0 pointer-events-none opacity-[0.22]"
+            style={{
+              backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E\")",
+              backgroundSize: '200px 200px',
+              mixBlendMode: 'overlay',
+            }}
+          />
+          <div className="holo-overlay" />
+        </>
+      )}
+      {isGold && (
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            backgroundImage: GOLD_HEX_BG,
+            backgroundSize: '10.4px 18px',
+            mixBlendMode: 'overlay',
+            opacity: 0.6,
+          }}
+        />
+      )}
       <div className="absolute inset-[2px] rounded-[14px] border border-white/[0.07] pointer-events-none z-10" />
 
       {/* Top banner */}
-      <div className={`absolute top-0 inset-x-0 z-20 bg-black/50 flex items-center px-1.5 py-1 justify-between`}>
+      <div className="absolute top-0 inset-x-0 z-20 bg-black/50 flex items-center px-1.5 py-1 justify-between">
         {compact ? (
           <span className="bg-white/25 rounded-full px-1 py-px text-[8px] font-black text-white leading-none">
             {reliability ?? TIER_REL_DEFAULT[player.tier]}%
@@ -163,16 +239,17 @@ function CardFace({ player, isSelected, compact, reliability }: { player: Player
         ) : (
           <span className="text-[7px] font-bold text-white/30 uppercase tracking-[0.2em]">CardPicks</span>
         )}
-        <span className={`rounded-full px-1.5 py-px font-black uppercase leading-none bg-white/15 ${compact ? 'text-[6px]' : 'text-[8px]'} ${s.label} ${isPlatinum ? 'platinum-shimmer' : ''}`}>
-          {compact ? TIER_SHORT[player.tier] : TIER_LABEL[player.tier]}
+        <span className={`font-black ${compact ? 'text-[7px]' : 'text-[9px]'} ${s.label} ${isPlatinum ? 'platinum-shimmer' : ''}`}>
+          {player.multiplier}×
         </span>
       </div>
 
-      {/* Image — leaves room for bottom banner */}
-      <div className={`absolute inset-x-0 overflow-hidden ${compact ? 'top-[16px] bottom-10' : 'top-[26px] bottom-12'}`}>
+      {/* Image */}
+      <div className={`absolute inset-x-0 overflow-hidden ${compact ? 'top-[16px] bottom-12' : 'top-[26px] bottom-16'}`}>
         {player.image_url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={player.image_url} alt={player.name} className="w-full h-full object-cover object-top"
+            style={{ filter: `drop-shadow(0 0 4px ${s.photoGlow}) drop-shadow(0 0 10px ${s.photoGlow})` }}
             onError={e => { (e.target as HTMLImageElement).style.opacity = '0' }} />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
@@ -181,22 +258,26 @@ function CardFace({ player, isSelected, compact, reliability }: { player: Player
         )}
       </div>
 
-      {/* Bottom banner — solid dark strip so name is always readable */}
-      <div className={`absolute bottom-0 inset-x-0 bg-gradient-to-t ${s.footer} to-transparent ${compact ? 'h-12' : 'h-16'}`} />
+      <div className={`absolute bottom-0 inset-x-0 bg-gradient-to-t ${s.footer} to-transparent ${compact ? 'h-14' : 'h-20'}`} />
 
-      {/* Bottom text sits inside the banner */}
-      <div className={`absolute bottom-0 inset-x-0 z-20 ${compact ? 'px-1.5 pb-1.5' : 'px-2.5 pb-2.5'}`}>
-        <div className={`text-white font-black uppercase leading-tight drop-shadow-lg ${compact ? 'text-[7px] line-clamp-2 tracking-normal' : 'text-[11px] truncate tracking-wide'}`}>
-          {player.name}
-        </div>
-        {compact ? (
-          <span className={`text-[9px] font-black ${s.label}`}>{player.multiplier}×</span>
-        ) : (
-          <div className="flex items-center justify-between mt-0.5">
-            <span className="text-white/50 text-[9px] uppercase">{player.team_abbr}</span>
-            <span className={`text-[10px] font-black ${s.label}`}>{player.multiplier}×</span>
+      <div className={`absolute bottom-0 inset-x-0 z-20 flex items-end justify-between ${compact ? 'px-1.5 pb-0.5' : 'px-2 pb-1'}`}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={teamLogoUrl(player.team_abbr)}
+          alt={player.team_abbr}
+          className={`object-contain opacity-85 flex-shrink-0 ${compact ? 'w-7 h-7' : 'w-9 h-9'}`}
+          style={{ filter: 'drop-shadow(0 0 3px rgba(255,255,255,0.9)) drop-shadow(0 0 7px rgba(255,255,255,0.55))' }}
+        />
+        <div className="text-right min-w-0">
+          {first && (
+            <div className={`text-white/70 font-bold uppercase tracking-wider leading-none ${compact ? 'text-[8px]' : 'text-[10px]'}`}>
+              {first}
+            </div>
+          )}
+          <div className="text-white font-black uppercase leading-tight drop-shadow-lg" style={{ fontSize: lastNameFontSize(last, compact ? 14 : 19) }}>
+            {last}
           </div>
-        )}
+        </div>
       </div>
 
       {isSelected && <div className="absolute inset-0 bg-amber-400/10 pointer-events-none z-30 rounded-2xl" />}
@@ -227,6 +308,7 @@ function WagerOverlay({
   onInsuranceToggle?: () => void
   onDoubleDownToggle?: () => void
 }) {
+  useLockBodyScroll()
   const teamName = side === 'home' ? game.home_team : game.away_team
   const abbr     = side === 'home' ? game.home_team_abbr : game.away_team_abbr
 
@@ -256,8 +338,11 @@ function WagerOverlay({
             </span>
           </div>
         ) : (
-          <p className="text-white/50 text-xs mt-1">Tap a card to wager — or play without one</p>
+          <p className="text-white/50 text-xs mt-1">Tap a card to wager, or play without one</p>
         )}
+        <OnboardingCallout id="wager_overlay" dark className="mt-3">
+          Wagering a card multiplies your reward by its tier — but you lose it if the pick is wrong.
+        </OnboardingCallout>
       </div>
 
       {/* Card spread */}
@@ -346,12 +431,12 @@ function WagerOverlay({
 }
 
 export default function PredictionsPage() {
+  const { userId } = useUserId()
   const [games, setGames] = useState<Game[]>([])
   const [predictions, setPredictions] = useState<Prediction[]>([])
   const [ownedCards, setOwnedCards] = useState<{ player: Player; quantity: number; reliability: number[] | null }[]>([])
   const { credits, setCredits } = useCredits()
   const [loading, setLoading] = useState(true)
-  const [settling, setSettling] = useState(false)
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null)
   const [selectedDate, setSelectedDate] = useState(today)
   const [picksActionCards, setPicksActionCards] = useState<UserActionCardWithType[]>([])
@@ -359,17 +444,17 @@ export default function PredictionsPage() {
   const [wagerDoubleDown, setWagerDoubleDown] = useState<Record<string, boolean>>({})
 const [draftPicks, setDraftPicks] = useState<Record<string, 'home' | 'away'>>({})
   const [wagerCards, setWagerCards] = useState<Record<string, Player | null>>({})
-  const hasAutoSettled = useRef(false)
   const [activeWagerGameId, setActiveWagerGameId] = useState<string | null>(null)
   const [forcingWinner, setForcingWinner] = useState<string | null>(null)
 
   useEffect(() => {
+    if (!userId) return
     syncThenLoad()
-  }, [])
+  }, [userId])
 
   async function syncThenLoad() {
     try {
-      await fetch('/api/sync', {
+      await authedFetch('/api/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ dates: weekDates }),
@@ -381,15 +466,37 @@ const [draftPicks, setDraftPicks] = useState<Record<string, 'home' | 'away'>>({}
   }
 
   async function loadAll() {
-    const [gamesRes, predsRes, cardsRes, actionRes] = await Promise.all([
+    if (!userId) return
+    const [gamesRes, predsRes, cardsRes, actionRes, stateRes] = await Promise.all([
       supabase.from('games').select('*').order('game_date').order('game_time'),
-      supabase.from('predictions').select('*').eq('user_id', USER_ID),
-      supabase.from('user_cards').select('*, player:players(*)').eq('user_id', USER_ID),
-      supabase.from('user_action_cards').select('*, type:action_card_types(*)').eq('user_id', USER_ID).eq('used', false),
+      supabase.from('predictions').select('*').eq('user_id', userId),
+      supabase.from('user_cards').select('*, player:players(*)').eq('user_id', userId),
+      supabase.from('user_action_cards').select('*, type:action_card_types(*)').eq('user_id', userId).eq('used', false),
+      supabase.from('user_state').select('credits').eq('user_id', userId).single(),
     ])
+    if (stateRes.data) setCredits(stateRes.data.credits)
+
+    // Settlement happens server-side (via /api/sync on every load, or the dev force-winner
+    // route) — diff against what we had locally so a pick that just resolved still gets a toast.
+    const freshPreds: Prediction[] = predsRes.data ?? []
+    const prevById = new Map(predictions.map(p => [p.id, p]))
+    const newlySettled = freshPreds.filter(p => {
+      const prev = prevById.get(p.id)
+      return prev && prev.status === 'pending' && p.status !== 'pending'
+    })
+    if (newlySettled.length === 1) {
+      const p = newlySettled[0]
+      const game = (gamesRes.data ?? []).find((g: Game) => g.id === p.game_id)
+      const correct = p.status === 'correct'
+      const label = game ? `${game.away_team_abbr} @ ${game.home_team_abbr}` : 'Pick'
+      showToast(correct ? `${label}: +${p.credits_earned ?? 0} cr` : `${label}: missed.`, correct)
+    } else if (newlySettled.length > 1) {
+      const wins = newlySettled.filter(p => p.status === 'correct').length
+      showToast(`Settled ${newlySettled.length} picks, ${wins} correct`, wins > 0)
+    }
 
     setGames(gamesRes.data ?? [])
-    setPredictions(predsRes.data ?? [])
+    setPredictions(freshPreds)
     setOwnedCards(
       (cardsRes.data ?? []).map((c: { player: unknown; quantity: number; reliability: number[] | null }) => ({
         player: c.player as Player,
@@ -427,56 +534,31 @@ const [draftPicks, setDraftPicks] = useState<Record<string, 'home' | 'away'>>({}
   const selectedDateGames = allSelectedDateGames.filter(g => g.status === 'scheduled')
 
   async function handleLockIn() {
+    if (!userId) return
     const gamesToLock = selectedDateGames.filter(
       g => draftPicks[g.id] !== undefined && !getPrediction(g.id)
     )
     if (gamesToLock.length === 0) return
 
-    const insuranceCard = picksActionCards.find(c => c.type.id === 'insurance')
-    const doubleDownCard = picksActionCards.find(c => c.type.id === 'double_down')
-
-    const inserts = gamesToLock.map(game => {
-      const side = draftPicks[game.id]!
-      const teamName = side === 'home' ? game.home_team : game.away_team
+    const picks = gamesToLock.map(game => {
       const wagered = wagerCards[game.id] ?? null
-      const useIns = !!(wagerInsurance[game.id] && insuranceCard && wagered)
-      const useDbl = !!(wagerDoubleDown[game.id] && doubleDownCard)
       return {
-        user_id: USER_ID,
         game_id: game.id,
-        predicted_winner: side,
-        predicted_team: teamName,
-        multiplier_applied: wagered?.multiplier ?? 1.0,
-        card_used_id: wagered?.id ?? null,
-        insurance_card_id: useIns ? insuranceCard!.id : null,
-        double_down_card_id: useDbl ? doubleDownCard!.id : null,
-        status: 'pending' as const,
-        credits_earned: null,
+        side: draftPicks[game.id]!,
+        card_player_id: wagered?.id ?? null,
+        use_insurance: !!(wagerInsurance[game.id] && wagered),
+        use_double_down: !!wagerDoubleDown[game.id],
       }
     })
 
-    // Mark consumed action cards as used immediately on lock
-    const usedActionIds = new Set<string>()
-    if (insuranceCard && gamesToLock.some(g => wagerInsurance[g.id] && wagerCards[g.id])) usedActionIds.add(insuranceCard.id)
-    if (doubleDownCard && gamesToLock.some(g => wagerDoubleDown[g.id])) usedActionIds.add(doubleDownCard.id)
-    for (const id of usedActionIds) {
-      await supabase.from('user_action_cards').update({ used: true }).eq('id', id)
-    }
-    if (usedActionIds.size > 0) {
-      setPicksActionCards(prev => prev.filter(c => !usedActionIds.has(c.id)))
-    }
+    const res = await authedFetch('/api/picks/lock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ picks }),
+    })
 
-    const { data, error } = await supabase.from('predictions').insert(inserts).select()
-
-    if (!error && data) {
-      // Merge locally-known insurance/double_down values into the DB response in case
-      // PostgREST schema cache omits ALTER TABLE columns from the response.
-      const merged = data.map((row, i) => ({
-        ...row,
-        insurance_card_id:   inserts[i]?.insurance_card_id   ?? row.insurance_card_id   ?? null,
-        double_down_card_id: inserts[i]?.double_down_card_id ?? row.double_down_card_id ?? null,
-      }))
-      setPredictions(prev => [...prev, ...merged])
+    if (res.ok) {
+      const data = await res.json()
       setDraftPicks(prev => {
         const next = { ...prev }
         gamesToLock.forEach(g => delete next[g.id])
@@ -488,145 +570,46 @@ const [draftPicks, setDraftPicks] = useState<Record<string, 'home' | 'away'>>({}
         return next
       })
       setActiveWagerGameId(null)
-      showToast(`Locked in ${data.length} pick${data.length > 1 ? 's' : ''}`, true)
+      showToast(`Locked in ${data.predictions.length} pick${data.predictions.length > 1 ? 's' : ''}`, true)
+      await loadAll()
+    } else {
+      const err = await res.json().catch(() => ({}))
+      showToast(err.error ?? 'Failed to lock in picks', false)
     }
   }
 
   async function handleUnlock() {
-    const lockedIds = selectedDateGames
-      .map(g => getPrediction(g.id)?.id)
-      .filter(Boolean) as string[]
-    if (!lockedIds.length) return
-    await supabase.from('predictions').delete().in('id', lockedIds)
-    setPredictions(prev => prev.filter(p => !lockedIds.includes(p.id)))
-    showToast('Picks unlocked', true)
-  }
-
-  async function settlePrediction(game: Game): Promise<{ correct: boolean; msg: string } | null> {
-    if (!game.winner || game.status !== 'final') return null
-    const pred = getPrediction(game.id)
-    if (!pred || pred.status !== 'pending') return null
-
-    const correct = pred.predicted_winner === game.winner
-    const hasInsurance = !!pred.insurance_card_id
-    const hasDoubleDown = !!pred.double_down_card_id
-    const baseEarned = correct ? calcCreditsEarned(pred.multiplier_applied) : 0
-    const earned = correct && hasDoubleDown ? baseEarned * 2 : baseEarned
-    const cardWagered = !!pred.card_used_id
-    const cardProtected = !correct && hasInsurance
-
-    // Read fresh credits from DB to avoid stale closure value in batch runs
-    const { data: state } = await supabase
-      .from('user_state').select('credits').eq('user_id', USER_ID).single()
-    const currentCredits = state?.credits ?? 0
-
-    await Promise.all([
-      supabase
-        .from('predictions')
-        .update({ status: correct ? 'correct' : 'incorrect', credits_earned: earned })
-        .eq('id', pred.id),
-      correct
-        ? supabase.from('user_state').update({ credits: currentCredits + earned }).eq('user_id', USER_ID)
-        : Promise.resolve({ error: null }),
-    ])
-
-    if (!correct && pred.card_used_id && !cardProtected) {
-      await consumeCard(pred.card_used_id)
-      setOwnedCards(prev => {
-        const idx = prev.findIndex(c => c.player.id === pred.card_used_id)
-        if (idx === -1) return prev
-        if (prev[idx].quantity <= 1) return prev.filter((_, i) => i !== idx)
-        return prev.map((c, i) => i === idx ? { ...c, quantity: c.quantity - 1 } : c)
-      })
+    const lockedGameIds = selectedDateGames
+      .filter(g => getPrediction(g.id))
+      .map(g => g.id)
+    if (!lockedGameIds.length) return
+    const res = await authedFetch('/api/picks/unlock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ game_ids: lockedGameIds }),
+    })
+    if (res.ok) {
+      showToast('Picks unlocked', true)
+      await loadAll()
     }
-
-    if (correct) setCredits(c => (c ?? 0) + earned)
-    setPredictions(prev =>
-      prev.map(p =>
-        p.id === pred.id
-          ? { ...p, status: correct ? 'correct' : 'incorrect', credits_earned: earned }
-          : p
-      )
-    )
-
-    const winSuffix = hasDoubleDown ? ` (2×!)` : ''
-    const lossSuffix = cardProtected ? ' Player card retained · Insurance burned.' : cardWagered ? ' Card lost.' : ''
-    const msg = correct
-      ? `${game.away_team_abbr} @ ${game.home_team_abbr}: +${earned} cr${winSuffix}`
-      : `${game.away_team_abbr} @ ${game.home_team_abbr}: missed.${lossSuffix}`
-
-    return { correct, msg }
-  }
-
-  async function handleSettle(game: Game) {
-    setSettling(true)
-    const result = await settlePrediction(game)
-    if (result) showToast(result.msg, result.correct)
-    setSettling(false)
-  }
-
-  async function handleSettleAll() {
-    if (pendingSettlement.length === 0) return
-    setSettling(true)
-    const results = []
-    for (const game of [...pendingSettlement]) {
-      const r = await settlePrediction(game)
-      if (r) results.push(r)
-    }
-    const wins = results.filter(r => r.correct).length
-    showToast(`Settled ${results.length} picks — ${wins} correct`, wins > 0)
-    setSettling(false)
   }
 
   async function forceWinner(game: Game, winner: 'home' | 'away') {
     setForcingWinner(game.id)
-    await fetch('/api/dev/set-game-winner', {
+    // Settlement (credits, card consumption) happens server-side inside this route now.
+    await authedFetch('/api/dev/set-game-winner', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ game_id: game.id, winner }),
     })
-    // Settle with the now-final game state before reloading
-    const result = await settlePrediction({ ...game, status: 'final', winner })
-    if (result) showToast(result.msg, result.correct)
     await loadAll()
     setForcingWinner(null)
-  }
-
-  async function consumeCard(playerId: string) {
-    const { data } = await supabase
-      .from('user_cards')
-      .select('id, quantity')
-      .eq('user_id', USER_ID)
-      .eq('player_id', playerId)
-      .single()
-
-    if (!data) return
-
-    if (data.quantity <= 1) {
-      await supabase.from('user_cards').delete().eq('id', data.id)
-    } else {
-      await supabase.from('user_cards').update({ quantity: data.quantity - 1 }).eq('id', data.id)
-    }
   }
 
   function showToast(msg: string, ok: boolean) {
     setToast({ msg, ok })
     setTimeout(() => setToast(null), 3000)
   }
-
-  const finalGames = games.filter(g => g.status === 'final')
-  const pendingSettlement = finalGames.filter(g => {
-    const pred = getPrediction(g.id)
-    return pred && pred.status === 'pending'
-  })
-
-  // Auto-settle any pending picks on final games when page loads
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    if (loading || hasAutoSettled.current || pendingSettlement.length === 0) return
-    hasAutoSettled.current = true
-    handleSettleAll()
-  }, [loading, pendingSettlement.length])
 
   const selectedIdx = weekDates.indexOf(selectedDate)
   const draftCount = selectedDateGames.filter(
@@ -669,12 +652,6 @@ const [draftPicks, setDraftPicks] = useState<Record<string, 'home' | 'away'>>({}
           }`}
         >
           {toast.msg}
-        </div>
-      )}
-
-      {settling && (
-        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-3 text-center">
-          <p className="text-emerald-800 text-sm font-semibold">Settling picks...</p>
         </div>
       )}
 

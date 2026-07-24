@@ -51,6 +51,27 @@ export function drawCard(pack: PackType, players: Player[], guaranteedSlot = fal
   return source[Math.floor(Math.random() * source.length)]
 }
 
+// Draws a full pack's worth of cards: one guaranteed-tier-or-better slot, platinum capped
+// at one per pack, reliability rolled per card. Used both when opening a pack and repacking.
+export function drawPackCards(
+  pack: PackType,
+  players: Player[],
+  rollReliability: (tier: Tier) => number,
+): { player: Player; reliability: number }[] {
+  const cards: { player: Player; reliability: number }[] = []
+  let platinumDrawn = 0
+  const guaranteedSlot = Math.floor(Math.random() * pack.card_count)
+  for (let i = 0; i < pack.card_count; i++) {
+    let card = drawCard(pack, players, i === guaranteedSlot)
+    if (card.tier === 'platinum' && platinumDrawn >= 1) {
+      card = drawCard({ ...pack, odds: { ...pack.odds, platinum: 0 } }, players, i === guaranteedSlot)
+    }
+    if (card.tier === 'platinum') platinumDrawn++
+    cards.push({ player: card, reliability: rollReliability(card.tier) })
+  }
+  return cards
+}
+
 // Rolls for a bonus action card given a pack's pool weights. Returns action card id or null.
 export function drawActionCard(
   bonusChance: number,

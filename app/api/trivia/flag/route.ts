@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-
-const USER_ID = 'default'
+import { getUserId } from '@/lib/get-user-id'
 
 function sb() {
   return createClient(
@@ -13,6 +12,9 @@ function sb() {
 // POST /api/trivia/flag
 // Body: { question_id, reason }
 export async function POST(req: Request) {
+  const userId = await getUserId(req)
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const { question_id, reason } = await req.json() as { question_id: string; reason: string }
   if (!question_id) return NextResponse.json({ error: 'question_id required' }, { status: 400 })
 
@@ -29,7 +31,7 @@ export async function POST(req: Request) {
 
   const { error } = await client.from('question_flags').insert({
     question_id,
-    user_id: USER_ID,
+    user_id: userId,
     reason: reason ?? '',
     question_snapshot: q,
     status: 'pending',

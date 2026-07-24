@@ -6,7 +6,7 @@ const sb = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-const ALLOWED_KEYS = ['draft_enabled', 'draft_opens_at', 'draft_year', 'draft_lock_time']
+const ALLOWED_KEYS = ['draft_enabled', 'draft_opens_at', 'draft_year', 'draft_lock_time', 'picks_enabled']
 
 // GET — return all draft settings
 export async function GET() {

@@ -22,10 +22,8 @@ function normalizeQuestion(q: string): string {
   return q.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim()
 }
 
+// Auth is handled by middleware.ts (admin cookie gate on /api/admin/*).
 export async function POST(req: Request) {
-  if (req.headers.get('x-admin-secret') !== process.env.ADMIN_SECRET) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
   const { target = 150 } = await req.json().catch(() => ({}))
   const base = new URL(req.url)
   const generateUrl = `${base.protocol}//${base.host}/api/trivia/generate`

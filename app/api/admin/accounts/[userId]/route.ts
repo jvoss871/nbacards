@@ -33,20 +33,25 @@ export async function GET(_req: Request, { params }: { params: Promise<{ userId:
   if (authErr || !user) return NextResponse.json({ error: 'user not found' }, { status: 404 })
 
   const [
-    { data: state },
+    { data: state, error: stateErr },
     { count: cardCount },
     { data: preds },
     { data: triviaSessions },
     { data: draftBoards },
     { data: purchases },
   ] = await Promise.all([
-    client.from('user_state').select('credits, prestige_level, username').eq('user_id', dataUserId).single(),
+    client.from('user_state').select('credits, prestige_level, username, support_note').eq('user_id', dataUserId).single(),
     client.from('user_cards').select('*', { count: 'exact', head: true }).eq('user_id', dataUserId),
     client.from('predictions').select('status, credits_earned').eq('user_id', dataUserId),
     client.from('trivia_sessions').select('status, credits_floor').eq('user_id', dataUserId),
     client.from('draft_boards').select('credits_earned').eq('user_id', dataUserId).eq('status', 'scored'),
-    client.from('purchases').select('amount_cents').eq('user_id', dataUserId).eq('status', 'completed'),
+    client.from('purchases')
+      .select('id, amount_cents, credits_granted, status, stripe_session_id, created_at')
+      .eq('user_id', dataUserId)
+      .order('created_at', { ascending: false }),
   ])
+
+  if (stateErr) return NextResponse.json({ error: stateErr.message }, { status: 500 })
 
   const settledPicks = (preds ?? []).filter(p => p.status !== 'pending')
   const correctPicks = settledPicks.filter(p => p.status === 'correct')
@@ -60,7 +65,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ userId:
     }, 0)
 
   const draftCredits = (draftBoards ?? []).reduce((s, b) => s + (b.credits_earned ?? 0), 0)
-  const totalSpentCents = (purchases ?? []).reduce((s, p) => s + p.amount_cents, 0)
+  const totalSpentCents = (purchases ?? [])
+    .filter(p => p.status === 'completed')
+    .reduce((s, p) => s + p.amount_cents, 0)
 
   return NextResponse.json({
     id: user.id,
@@ -69,6 +76,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ userId:
     credits: state?.credits ?? 0,
     username: state?.username ?? null,
     prestige_level: state?.prestige_level ?? 0,
+    support_note: state?.support_note ?? '',
     cards: cardCount ?? 0,
     picks: {
       total: settledPicks.length,
@@ -86,5 +94,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ userId:
       total: pickCredits + triviaEarned + draftCredits,
     },
     total_spent_cents: totalSpentCents,
+    purchases: (purchases ?? []).map(p => ({
+      id: p.id,
+      amount_cents: p.amount_cents,
+      credits_granted: p.credits_granted,
+      status: p.status,
+      stripe_session_id: p.stripe_session_id,
+      created_at: p.created_at,
+    })),
   })
 }

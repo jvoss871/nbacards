@@ -2,16 +2,18 @@
 
 import { useEffect, useRef, useState, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { supabase, USER_ID } from '@/lib/supabase'
-import type { PackType, Player, ActionCardType } from '@/lib/types'
+import { useUserId } from '@/lib/use-user-id'
+import { authedFetch } from '@/lib/authed-fetch'
+import type { Player, ActionCardType } from '@/lib/types'
 import { Tooltip } from '@/components/Tooltip'
-import { drawCard, drawActionCard } from '@/lib/game-logic'
-import { rollReliability } from '@/lib/trivia-logic'
 import ActionCardReveal from '@/components/ActionCardReveal'
 import PlayerCardFlip from '@/components/PlayerCardFlip'
 import { ActionCard } from '@/components/ActionCard'
 import { PlatinumReveal } from '@/components/PlatinumReveal'
+import { PackTearAnimation } from '@/components/PackTearAnimation'
+import { OnboardingCallout } from '@/components/OnboardingCallout'
 import { useCredits } from '@/lib/credits-context'
+import { supabase } from '@/lib/supabase'
 
 interface UserActionCardWithType {
   id: string
@@ -20,287 +22,116 @@ interface UserActionCardWithType {
   type: ActionCardType
 }
 
-interface SavedCard {
-  userCardId: string
-  wasInserted: boolean
-}
-
-async function saveSingleCard(player: Player, reliability: number): Promise<SavedCard> {
-  const { data: existing } = await supabase
-    .from('user_cards')
-    .select('id, quantity, reliability')
-    .eq('user_id', USER_ID)
-    .eq('player_id', player.id)
-    .maybeSingle()
-
-  if (existing) {
-    const rolls = [...(existing.reliability ?? []), reliability]
-    await supabase
-      .from('user_cards')
-      .update({ quantity: existing.quantity + 1, reliability: rolls })
-      .eq('id', existing.id)
-    return { userCardId: existing.id, wasInserted: false }
-  } else {
-    const { data: inserted } = await supabase
-      .from('user_cards')
-      .insert({ user_id: USER_ID, player_id: player.id, quantity: 1, reliability: [reliability] })
-      .select('id')
-      .single()
-    return { userCardId: inserted!.id, wasInserted: true }
-  }
-}
-
-async function undoSingleCard(sc: SavedCard): Promise<void> {
-  if (sc.wasInserted) {
-    await supabase.from('user_cards').delete().eq('id', sc.userCardId)
-  } else {
-    const { data: row } = await supabase
-      .from('user_cards')
-      .select('quantity, reliability')
-      .eq('id', sc.userCardId)
-      .single()
-    if (row) {
-      if (row.quantity <= 1) {
-        await supabase.from('user_cards').delete().eq('id', sc.userCardId)
-      } else {
-        await supabase
-          .from('user_cards')
-          .update({
-            quantity: row.quantity - 1,
-            reliability: (row.reliability as number[]).slice(0, -1),
-          })
-          .eq('id', sc.userCardId)
-      }
-    }
-  }
-}
-
 function PackOpenInner() {
   const params = useSearchParams()
   const router = useRouter()
   const packId = params.get('packId')
+  const packNameParam = params.get('packName')
+  const { userId } = useUserId()
   const { setCredits } = useCredits()
 
   const hasLoaded = useRef(false)
-  const [pack, setPack] = useState<PackType | null>(null)
-  const [allPlayers, setAllPlayers] = useState<Player[]>([])
+  const [packName, setPackName] = useState<string | null>(null)
   const [drawnCards, setDrawnCards] = useState<{ player: Player; reliability: number }[]>([])
   const [flipped, setFlipped] = useState<boolean[]>([])
   const [bonusCard, setBonusCard] = useState<ActionCardType | null>(null)
   const [bonusFlipped, setBonusFlipped] = useState(false)
-  const [savedCards, setSavedCards] = useState<SavedCard[]>([])
-  const [savedBonusAcId, setSavedBonusAcId] = useState<string | null>(null)
+  const [bonusActionCardId, setBonusActionCardId] = useState<string | null>(null)
   const [packsActionCards, setPacksActionCards] = useState<UserActionCardWithType[]>([])
   const [loading, setLoading] = useState(true)
   const [revealingAll, setRevealingAll] = useState(false)
   const [openError, setOpenError] = useState<string | null>(null)
   const [platinumReveal, setPlatinumReveal] = useState(false)
+  const [showTear, setShowTear] = useState(true)
 
   useEffect(() => {
     if (!packId) { router.replace('/packs'); return }
+    if (!userId) return
     if (hasLoaded.current) return
     hasLoaded.current = true
+
     async function load() {
-      // Deduct credits server-side before drawing cards — prevents free pack by direct URL
-      const buyRes = await fetch('/api/packs/buy', {
+      // Credits, card draw, and action-card rolls all happen server-side — the client
+      // only ever renders whatever the server decided.
+      const res = await authedFetch('/api/packs/open', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pack_id: packId }),
       })
-      if (!buyRes.ok) {
-        const err = await buyRes.json().catch(() => ({}))
-        if (buyRes.status === 402) { router.replace('/packs'); return }
-        setOpenError(err.error ?? 'Failed to purchase pack')
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        if (res.status === 402) { router.replace('/packs'); return }
+        setOpenError(err.error ?? 'Failed to open pack')
         setLoading(false)
         return
       }
-      const buyData = await buyRes.json()
-      const newCredits: number = buyData.credits
-      setCredits(newCredits)
+      const data = await res.json()
+      setCredits(data.credits)
+      setPackName(data.pack_name)
+      setDrawnCards(data.cards)
+      setFlipped(new Array(data.cards.length).fill(false))
+      setBonusCard(data.bonusCard ?? null)
+      setBonusActionCardId(data.bonusActionCardId ?? null)
 
-      const [packRes, playersRes] = await Promise.all([
-        supabase.from('pack_types').select('*').eq('id', packId).single(),
-        supabase.from('players').select('*').eq('in_pool', true),
-      ])
-      if (!packRes.data) { router.replace('/packs'); return }
-      const loadedPack = packRes.data
-      setPack(loadedPack)
+      const { data: actionData } = await supabase
+        .from('user_action_cards')
+        .select('*, type:action_card_types(*)')
+        .eq('user_id', userId)
+        .eq('used', false)
+      const allAction = (actionData ?? []) as UserActionCardWithType[]
+      setPacksActionCards(allAction.filter(c => c.type?.context === 'packs'))
 
-      const players = playersRes.data ?? []
-      setAllPlayers(players)
-
-      const fail = async (msg: string) => {
-        // Refund on draw failure — credits were already deducted server-side
-        const { data: state } = await supabase
-          .from('user_state')
-          .select('credits')
-          .eq('user_id', USER_ID)
-          .single()
-        if (state) {
-          const refunded = state.credits + loadedPack.credit_cost
-          await supabase
-            .from('user_state')
-            .update({ credits: refunded })
-            .eq('user_id', USER_ID)
-          setCredits(refunded)
-        }
-        setOpenError(msg)
-        setLoading(false)
-      }
-
-      if (players.length === 0) {
-        await fail('No players in the card pool yet. Sync the roster first.')
-        return
-      }
-
-      try {
-        const cards: { player: Player; reliability: number }[] = []
-        let platinumDrawn = 0
-        const guaranteedSlot = Math.floor(Math.random() * loadedPack.card_count)
-        for (let i = 0; i < loadedPack.card_count; i++) {
-          let card = drawCard(loadedPack, players, i === guaranteedSlot)
-          if (card.tier === 'platinum' && platinumDrawn >= 1) {
-            const cappedOdds = { ...loadedPack.odds, platinum: 0 }
-            card = drawCard({ ...loadedPack, odds: cappedOdds }, players, i === guaranteedSlot)
-          }
-          if (card.tier === 'platinum') platinumDrawn++
-          cards.push({ player: card, reliability: rollReliability(card.tier) })
-        }
-        setDrawnCards(cards)
-        setFlipped(new Array(cards.length).fill(false))
-
-        // Bonus action card
-        const bonusChance = loadedPack.action_bonus_chance ?? 0
-        const pool = loadedPack.action_card_pool ?? {}
-        const drawnActionId = drawActionCard(bonusChance, pool)
-        let drawnBonusCard: ActionCardType | null = null
-        if (drawnActionId) {
-          const { data: actionTypes } = await supabase
-            .from('action_card_types')
-            .select('*')
-            .eq('id', drawnActionId)
-            .single()
-          if (actionTypes) {
-            drawnBonusCard = actionTypes as ActionCardType
-            setBonusCard(drawnBonusCard)
-          }
-        }
-
-        // Load packs-context action cards
-        const { data: actionData } = await supabase
-          .from('user_action_cards')
-          .select('*, type:action_card_types(*)')
-          .eq('user_id', USER_ID)
-          .eq('used', false)
-        const allAction = (actionData ?? []) as UserActionCardWithType[]
-        setPacksActionCards(allAction.filter(c => c.type?.context === 'packs'))
-
-        // Credits are spent — save cards immediately so navigation can't lose them
-        const savedList: SavedCard[] = []
-        for (const { player, reliability } of cards) {
-          savedList.push(await saveSingleCard(player, reliability))
-        }
-        setSavedCards(savedList)
-
-        // Log the pack open with full card list now that we know what was pulled
-        fetch('/api/packs/log-open', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            pack_name: loadedPack.name,
-            cost: buyData.cost,
-            previous_balance: buyData.previous_balance,
-            new_balance: newCredits,
-            cards: cards.map(({ player }) => ({ name: player.name, tier: player.tier })),
-          }),
-        })
-
-        // Save bonus action card if drawn
-        let bonusAcRowId: string | null = null
-        if (drawnBonusCard) {
-          const { data: acRow } = await supabase
-            .from('user_action_cards')
-            .insert({ user_id: USER_ID, action_card_type_id: drawnBonusCard.id, used: false })
-            .select('id')
-            .single()
-          bonusAcRowId = acRow?.id ?? null
-        }
-        setSavedBonusAcId(bonusAcRowId)
-
-        setLoading(false)
-      } catch (e) {
-        await fail(`Failed to draw cards: ${e instanceof Error ? e.message : String(e)}`)
-      }
+      setLoading(false)
     }
     load()
-  }, [packId, router, setCredits])
+  }, [packId, router, setCredits, userId])
 
   const allPlayerCardsRevealed = flipped.length > 0 && flipped.every(Boolean) && drawnCards.length > 0
   const allRevealed = allPlayerCardsRevealed && (bonusCard ? bonusFlipped : true)
 
   async function handleReroll(idx: number) {
-    if (!pack || allPlayers.length === 0) return
+    if (!packId) return
     const card = packsActionCards.find(c => c.type.id === 'reroll')
     if (!card) return
 
-    // Undo the save for the card being replaced
-    const sc = savedCards[idx]
-    if (sc) await undoSingleCard(sc)
-
-    // Draw replacement
-    const cappedOdds = drawnCards[idx].player.tier === 'platinum'
-      ? { ...pack.odds, platinum: 0 }
-      : pack.odds
-    const newPlayer = drawCard({ ...pack, odds: cappedOdds }, allPlayers, false)
-    const newReliability = rollReliability(newPlayer.tier)
-    setDrawnCards(prev => prev.map((c, i) => i === idx ? { player: newPlayer, reliability: newReliability } : c))
+    const res = await authedFetch('/api/packs/reroll', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action_card_id: card.id,
+        pack_id: packId,
+        replace_player_id: drawnCards[idx].player.id,
+      }),
+    })
+    if (!res.ok) return
+    const { player, reliability } = await res.json()
+    setDrawnCards(prev => prev.map((c, i) => i === idx ? { player, reliability } : c))
     setFlipped(prev => prev.map((v, i) => (i === idx ? false : v)))
-
-    // Save replacement and update record for this slot
-    const newSc = await saveSingleCard(newPlayer, newReliability)
-    setSavedCards(prev => prev.map((c, i) => i === idx ? newSc : c))
-
-    await supabase.from('user_action_cards').update({ used: true }).eq('id', card.id)
     setPacksActionCards(prev => prev.filter(c => c.id !== card.id))
   }
 
   async function handleRepack() {
-    if (!pack || allPlayers.length === 0) return
+    if (!packId) return
     const card = packsActionCards.find(c => c.type.id === 'repack')
     if (!card) return
 
-    // Undo all currently saved cards and bonus
-    for (const sc of savedCards) await undoSingleCard(sc)
-    if (savedBonusAcId) {
-      await supabase.from('user_action_cards').delete().eq('id', savedBonusAcId)
-      setSavedBonusAcId(null)
-    }
-
-    // Draw new pack
-    const cards: { player: Player; reliability: number }[] = []
-    let platinumDrawn = 0
-    const guaranteedSlot = Math.floor(Math.random() * pack.card_count)
-    for (let i = 0; i < pack.card_count; i++) {
-      let p = drawCard(pack, allPlayers, i === guaranteedSlot)
-      if (p.tier === 'platinum' && platinumDrawn >= 1) {
-        p = drawCard({ ...pack, odds: { ...pack.odds, platinum: 0 } }, allPlayers, i === guaranteedSlot)
-      }
-      if (p.tier === 'platinum') platinumDrawn++
-      cards.push({ player: p, reliability: rollReliability(p.tier) })
-    }
+    const res = await authedFetch('/api/packs/repack', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action_card_id: card.id,
+        pack_id: packId,
+        replace_player_ids: drawnCards.map(c => c.player.id),
+        bonus_action_card_id: bonusActionCardId,
+      }),
+    })
+    if (!res.ok) return
+    const { cards } = await res.json()
     setDrawnCards(cards)
     setFlipped(new Array(cards.length).fill(false))
     setBonusCard(null)
     setBonusFlipped(false)
-
-    // Save new cards immediately
-    const savedList: SavedCard[] = []
-    for (const { player, reliability } of cards) {
-      savedList.push(await saveSingleCard(player, reliability))
-    }
-    setSavedCards(savedList)
-
-    await supabase.from('user_action_cards').update({ used: true }).eq('id', card.id)
+    setBonusActionCardId(null)
     setPacksActionCards(prev => prev.filter(c => c.id !== card.id))
   }
 
@@ -330,15 +161,11 @@ function PackOpenInner() {
     setRevealingAll(false)
   }
 
-  if (loading) {
-    return <div className="text-[#a39890] text-sm py-12 text-center">Drawing cards...</div>
-  }
-
   if (openError) {
     return (
       <div className="flex flex-col items-center gap-4 py-16 text-center">
         <p className="text-red-400 font-semibold">{openError}</p>
-        <p className="text-[#a39890] text-sm">Your credits have been refunded.</p>
+        <p className="text-[#a39890] text-sm">Any deducted credits have been refunded.</p>
         <button
           onClick={() => router.push('/packs')}
           className="px-5 py-2.5 bg-[#1a1714] text-white rounded-xl text-sm font-bold"
@@ -349,18 +176,30 @@ function PackOpenInner() {
     )
   }
 
-  if (!pack) {
+  // The tear plays immediately using the pack name carried over from the store — it doesn't
+  // need to wait on the /api/packs/open response, which is drawing the actual cards in the
+  // background during the same window.
+  const tearPackName = packNameParam ?? packName
+  if (showTear && tearPackName) {
+    return <PackTearAnimation packName={tearPackName} onDone={() => setShowTear(false)} />
+  }
+
+  if (loading || !packName) {
     return <div className="text-[#a39890] text-sm py-12 text-center">Drawing cards...</div>
   }
 
   return (
     <div className="space-y-8">
       <div className="text-center">
-        <h1 className="text-2xl font-black text-[#1a1714]">{pack.name}</h1>
+        <h1 className="text-2xl font-black text-[#1a1714]">{packName}</h1>
         <p className="text-[#a39890] text-sm mt-1">
           {allRevealed ? 'All cards revealed' : 'Tap a card to reveal it'}
         </p>
       </div>
+
+      <OnboardingCallout id="pack_reveal" className="max-w-md mx-auto">
+        Tap a card to flip it. Reroll and Repack can appear after you reveal — burn one to redraw.
+      </OnboardingCallout>
 
       <div className="flex flex-wrap justify-center gap-4">
         {drawnCards.map(({ player, reliability }, i) => {

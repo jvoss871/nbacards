@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { settlePredictions } from '@/lib/settle-predictions'
 
 export async function POST(req: Request) {
 
@@ -21,5 +22,7 @@ export async function POST(req: Request) {
     .eq('id', game_id)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ ok: true })
+
+  const settled = await settlePredictions(sb, game_id, winner)
+  return NextResponse.json({ ok: true, settled })
 }

@@ -8,12 +8,28 @@ function sb() {
   )
 }
 
+// Supabase's admin API caps a single page at 1000 — loop until a page comes
+// back short so search covers every registered user, not just the first 1000.
+async function listAllUsers(client: ReturnType<typeof sb>) {
+  const all: { id: string; email?: string; created_at: string }[] = []
+  let page = 1
+  const perPage = 1000
+  while (true) {
+    const { data, error } = await client.auth.admin.listUsers({ page, perPage })
+    if (error) return { users: all, error }
+    all.push(...data.users)
+    if (data.users.length < perPage) break
+    page++
+  }
+  return { users: all, error: null }
+}
+
 // GET /api/admin/accounts?q=email
 export async function GET(req: Request) {
   const q = new URL(req.url).searchParams.get('q')?.toLowerCase().trim() ?? ''
 
   const client = sb()
-  const { data: { users }, error } = await client.auth.admin.listUsers({ perPage: 1000 })
+  const { users, error } = await listAllUsers(client)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   const filtered = (q.length >= 2)

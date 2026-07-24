@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { QUESTIONS_PER_TIER } from '@/lib/trivia-logic'
+import { todayET } from '@/lib/time'
+import { getUserId } from '@/lib/get-user-id'
 
-const USER_ID = 'default'
 const MIN_PER_TIER = QUESTIONS_PER_TIER // 5 each
 
 function serviceClient() {
@@ -22,15 +23,18 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 // GET /api/trivia/session — returns today's session + questions
-export async function GET() {
+export async function GET(req: Request) {
+  const userId = await getUserId(req)
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const sb = serviceClient()
-  const today = new Date().toISOString().split('T')[0]
+  const today = todayET()
 
   // Check for existing session today
   const { data: existing } = await sb
     .from('trivia_sessions')
     .select('*')
-    .eq('user_id', USER_ID)
+    .eq('user_id', userId)
     .eq('session_date', today)
     .neq('status', 'reset')
     .single()
@@ -68,7 +72,7 @@ export async function GET() {
   const { data: pastSessions } = await sb
     .from('trivia_sessions')
     .select('question_ids')
-    .eq('user_id', USER_ID)
+    .eq('user_id', userId)
   const usedIds = new Set<string>(
     (pastSessions ?? []).flatMap(s => s.question_ids as string[])
   )
@@ -105,7 +109,7 @@ export async function GET() {
   const { data: session, error } = await sb
     .from('trivia_sessions')
     .insert({
-      user_id:      USER_ID,
+      user_id:      userId,
       session_date: today,
       question_ids: selectedIds,
       current_step: 0,
@@ -129,13 +133,16 @@ export async function GET() {
 }
 
 // DELETE /api/trivia/session — wipes today's session (testing only)
-export async function DELETE() {
+export async function DELETE(req: Request) {
+  const userId = await getUserId(req)
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const sb = serviceClient()
-  const today = new Date().toISOString().split('T')[0]
+  const today = todayET()
   await sb
     .from('trivia_sessions')
     .delete()
-    .eq('user_id', USER_ID)
+    .eq('user_id', userId)
     .eq('session_date', today)
   return NextResponse.json({ ok: true })
 }

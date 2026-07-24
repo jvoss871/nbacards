@@ -8,23 +8,41 @@ function serviceClient() {
   )
 }
 
+// Supabase's admin API caps a single page at 1000 — loop until a page comes
+// back short so the count stays accurate past that many registered users.
+async function countAllUsers(sb: ReturnType<typeof serviceClient>): Promise<number> {
+  let total = 0
+  let page = 1
+  const perPage = 1000
+  while (true) {
+    const { data, error } = await sb.auth.admin.listUsers({ page, perPage })
+    if (error || !data?.users?.length) break
+    total += data.users.length
+    if (data.users.length < perPage) break
+    page++
+  }
+  return total
+}
+
 export async function GET() {
   const sb = serviceClient()
 
-  const [usersResult, revenueResult, flagsResult] = await Promise.all([
-    sb.auth.admin.listUsers({ perPage: 1000 }),
-    sb.from('purchases').select('amount_cents').eq('status', 'completed'),
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+
+  const [userCount, revenueResult, revenue30dResult, flagsResult] = await Promise.all([
+    countAllUsers(sb),
+    sb.rpc('sum_completed_purchases'),
+    sb.rpc('sum_completed_purchases', { since: thirtyDaysAgo }),
     sb.from('question_flags').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
   ])
 
-  const userCount = usersResult.data?.users?.length ?? 0
+  if (revenueResult.error) return NextResponse.json({ error: revenueResult.error.message }, { status: 500 })
+  if (revenue30dResult.error) return NextResponse.json({ error: revenue30dResult.error.message }, { status: 500 })
 
-  const revenueCents = (revenueResult.data ?? []).reduce(
-    (sum: number, row: { amount_cents: number }) => sum + row.amount_cents,
-    0,
-  )
+  const revenueCents = revenueResult.data ?? 0
+  const revenueCents30d = revenue30dResult.data ?? 0
 
   const pendingFlags = flagsResult.count ?? 0
 
-  return NextResponse.json({ userCount, revenueCents, pendingFlags })
+  return NextResponse.json({ userCount, revenueCents, revenueCents30d, pendingFlags })
 }

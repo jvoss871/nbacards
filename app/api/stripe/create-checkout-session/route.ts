@@ -30,8 +30,8 @@ export async function POST(req: Request) {
       },
       quantity: 1,
     }],
-    success_url: `${origin}/packs?purchase=success&session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url:  `${origin}/packs`,
+    success_url: `${origin}/profile?purchase=success&session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url:  `${origin}/profile`,
     metadata: {
       user_id:    userId,
       credits:    String(pkg.credits),

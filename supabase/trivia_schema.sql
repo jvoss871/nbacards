@@ -14,7 +14,6 @@ CREATE TABLE IF NOT EXISTS trivia_questions (
   audience_b int NOT NULL DEFAULT 25,
   audience_c int NOT NULL DEFAULT 25,
   audience_d int NOT NULL DEFAULT 25,
-  active boolean NOT NULL DEFAULT true,  -- set false to disable bad questions
   created_at timestamptz DEFAULT now()
 );
 

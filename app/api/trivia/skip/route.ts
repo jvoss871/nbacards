@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-
-const USER_ID = 'default'
+import { getUserId } from '@/lib/get-user-id'
 
 function serviceClient() {
   return createClient(
@@ -14,6 +13,9 @@ function serviceClient() {
 // Body: { session_id, action_card_id }
 // Replaces the current question with a fresh draw and marks the action card used.
 export async function POST(req: Request) {
+  const userId = await getUserId(req)
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const { session_id, action_card_id } = await req.json()
   const sb = serviceClient()
 
@@ -21,7 +23,7 @@ export async function POST(req: Request) {
     .from('trivia_sessions')
     .select('*')
     .eq('id', session_id)
-    .eq('user_id', USER_ID)
+    .eq('user_id', userId)
     .single()
 
   if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 })
@@ -61,7 +63,7 @@ export async function POST(req: Request) {
     .from('user_action_cards')
     .update({ used: true })
     .eq('id', action_card_id)
-    .eq('user_id', USER_ID)
+    .eq('user_id', userId)
 
   return NextResponse.json({ question: replacement })
 }

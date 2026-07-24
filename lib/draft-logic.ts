@@ -2,6 +2,18 @@ export const DRAFT_YEAR = 2026
 export const FIRST_ROUND_SLOTS = 30
 export const CREDIT_MULTIPLIER = 100  // 1st correct = 100cr, 2nd = 200cr, 3rd = 300cr…
 
+// Placeholder projected order shown before the admin sets/fetches the real draft_results —
+// single source of truth so the player-facing page and the admin default textarea can't
+// silently disagree with each other.
+export const PROJECTED_DRAFT_ORDER_2026: string[] = [
+  'WAS', 'UTA', 'MEM', 'CHI', 'LAC',
+  'BKN', 'SAC', 'ATL', 'DAL', 'MIL',
+  'GSW', 'OKC', 'MIA', 'CHA', 'CHI',
+  'MEM', 'OKC', 'CHA', 'TOR', 'SAS',
+  'DET', 'PHI', 'ATL', 'NYK', 'LAL',
+  'DEN', 'BOS', 'MIN', 'CLE', 'DAL',
+]
+
 // Total = CREDIT_MULTIPLIER × n(n+1)/2
 export function calcDraftCredits(correctPicks: number): number {
   return CREDIT_MULTIPLIER * correctPicks * (correctPicks + 1) / 2

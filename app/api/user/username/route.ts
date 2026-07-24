@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { Filter } from 'bad-words'
-
-const USER_ID = 'default'
+import { getUserId } from '@/lib/get-user-id'
 
 const filter = new Filter()
 
@@ -27,17 +26,23 @@ function serviceClient() {
   )
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  const userId = await getUserId(req)
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const sb = serviceClient()
   const { data } = await sb
     .from('user_state')
     .select('username')
-    .eq('user_id', USER_ID)
+    .eq('user_id', userId)
     .single()
   return NextResponse.json({ username: data?.username ?? null })
 }
 
 export async function PATCH(req: Request) {
+  const userId = await getUserId(req)
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const { username } = await req.json() as { username?: string }
   const name = username?.trim()
 
@@ -58,7 +63,7 @@ export async function PATCH(req: Request) {
   const { error } = await sb
     .from('user_state')
     .update({ username: name })
-    .eq('user_id', USER_ID)
+    .eq('user_id', userId)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ username: name })

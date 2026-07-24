@@ -18,8 +18,13 @@ export function PrestigeAvatar({ level, size = 'lg' }: { level: number; size?: '
 
   if (level === 0) {
     return (
-      <div className={`${sizeClass} rounded-full flex items-center justify-center flex-shrink-0 bg-[#1a1714] ring-2 ring-[#3a3330]`}>
-        <span className={`${textClass} font-black select-none text-white/20`}>0</span>
+      <div className={`${sizeClass} rounded-full flex items-center justify-center flex-shrink-0 bg-[#06101f] ring-2 ring-[#1e3a5f] overflow-hidden`}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="https://a.espncdn.com/combiner/i?img=/i/teamlogos/leagues/500/nba.png&h=80&w=80"
+          alt="NBA"
+          className={`${isSmall ? 'w-5 h-5' : 'w-10 h-10'} object-contain`}
+        />
       </div>
     )
   }

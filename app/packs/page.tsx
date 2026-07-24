@@ -1,13 +1,13 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { PacksSkeleton } from '@/components/Skeleton'
-import { supabase, USER_ID } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase'
+import { useUserId } from '@/lib/use-user-id'
 import type { PackType } from '@/lib/types'
 import { TIER_COLORS, TIER_LABEL } from '@/lib/game-logic'
 import { useCredits } from '@/lib/credits-context'
-import { CREDIT_PACKAGES } from '@/lib/stripe-packages'
 
 const PACK_THEMES: Record<string, {
   heroGradient: string
@@ -74,71 +74,32 @@ const TIER_BAR_COLOR: Record<string, string> = {
 
 export default function PackStorePage() {
   const router = useRouter()
-  const searchParams = useSearchParams()
+  const { userId } = useUserId()
   const [packs, setPacks] = useState<PackType[]>([])
-  const { credits, setCredits } = useCredits()
+  const { credits } = useCredits()
   const [loading, setLoading] = useState(true)
   const [buying, setBuying] = useState<string | null>(null)
-  const [purchasingPkg, setPurchasingPkg] = useState<string | null>(null)
   const [toast, setToast] = useState<{ msg: string; ok: boolean } | null>(null)
   const [isNewUser, setIsNewUser] = useState(false)
 
-  const showToast = useCallback((msg: string, ok: boolean) => {
+  function showToast(msg: string, ok: boolean) {
     setToast({ msg, ok })
-    setTimeout(() => setToast(null), 4000)
-  }, [])
+    setTimeout(() => setToast(null), 3000)
+  }
 
   useEffect(() => {
+    if (!userId) return
     async function load() {
       const [packsRes, cardsRes] = await Promise.all([
         supabase.from('pack_types').select('*').order('credit_cost'),
-        supabase.from('user_cards').select('id').eq('user_id', USER_ID).limit(1),
+        supabase.from('user_cards').select('id').eq('user_id', userId).limit(1),
       ])
       setPacks(packsRes.data ?? [])
       setIsNewUser((cardsRes.data ?? []).length === 0)
       setLoading(false)
     }
     load()
-  }, [])
-
-  // Handle return from Stripe Checkout
-  useEffect(() => {
-    if (searchParams.get('purchase') === 'success') {
-      // Webhook may take a moment — poll credits once after a short delay
-      setTimeout(async () => {
-        const { data } = await supabase
-          .from('user_state')
-          .select('credits')
-          .eq('user_id', USER_ID)
-          .single()
-        if (data) setCredits(data.credits)
-        showToast('Credits added to your account!', true)
-      }, 1500)
-      // Clean the URL without re-render
-      window.history.replaceState({}, '', '/packs')
-    }
-  }, [searchParams, setCredits, showToast])
-
-  async function handleBuyCreditPackage(packageId: string) {
-    setPurchasingPkg(packageId)
-    try {
-      const res = await fetch('/api/stripe/create-checkout-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ packageId, userId: USER_ID }),
-      })
-      const data = await res.json()
-      if (data.url) {
-        window.location.href = data.url
-      } else {
-        showToast(data.error ?? 'Something went wrong', false)
-        setPurchasingPkg(null)
-      }
-    } catch {
-      showToast('Something went wrong', false)
-      setPurchasingPkg(null)
-    }
-  }
+  }, [userId])
 
   async function handleBuy(pack: PackType) {
     if ((credits ?? 0) < pack.credit_cost) {
@@ -146,7 +107,7 @@ export default function PackStorePage() {
       return
     }
     setBuying(pack.id)
-    router.push(`/open?packId=${pack.id}`)
+    router.push(`/open?packId=${pack.id}&packName=${encodeURIComponent(pack.name)}`)
   }
 
   if (loading) return <PacksSkeleton />
@@ -166,47 +127,30 @@ export default function PackStorePage() {
         <p className="text-[#a39890] text-sm mt-1">
           You have{' '}
           <span className="text-amber-700 font-bold">
-            {credits === null ? '—' : credits.toLocaleString()} credits
+            {credits === null ? '-' : credits.toLocaleString()} credits
           </span>
         </p>
       </div>
 
       {isNewUser && credits === 200 && (
-        <div className="rounded-2xl bg-amber-50 border border-amber-200 p-4">
-          <p className="text-sm font-black text-amber-900">Welcome — you have 200 free credits.</p>
-          <p className="text-xs text-amber-700 mt-0.5">Open a Starter pack to build your first lineup.</p>
+        <div className="relative overflow-hidden rounded-2xl" style={{ background: 'linear-gradient(135deg,#0c1428 0%,#111827 100%)' }}>
+          <div className="absolute top-0 inset-x-0 h-px" style={{ background: 'linear-gradient(90deg,transparent,#FFD700,transparent)' }} />
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_55%_80%_at_20%_50%,rgba(251,191,36,0.09),transparent_70%)] pointer-events-none" />
+          <div className="relative flex items-center gap-5 px-5 py-4">
+            <div className="flex-shrink-0 text-center">
+              <div className="text-5xl font-black leading-none tabular-nums" style={{ color: '#FFD700', textShadow: '0 0 32px rgba(251,191,36,0.45)' }}>200</div>
+              <div className="text-[8px] font-black uppercase tracking-[0.3em] text-amber-400/60 mt-0.5">Credits</div>
+            </div>
+            <div className="w-px self-stretch bg-white/[0.08]" />
+            <div>
+              <p className="text-[9px] font-black uppercase tracking-[0.3em] text-amber-400 mb-1">Welcome to CardPicks</p>
+              <p className="text-white font-black text-sm leading-tight">Your starter credits are loaded.</p>
+              <p className="text-white/45 text-[11px] mt-1 leading-snug">Open a Starter pack to build your first lineup.</p>
+            </div>
+          </div>
+          <div className="absolute bottom-0 inset-x-0 h-px bg-white/[0.05]" />
         </div>
       )}
-
-      {/* Buy Credits */}
-      <div className="rounded-2xl border border-[#e2ddd6] bg-white shadow-sm overflow-hidden">
-        <div className="px-4 pt-4 pb-3 border-b border-[#f0ede8]">
-          <p className="text-[10px] font-black uppercase tracking-widest text-[#a39890]">Top Up Credits</p>
-        </div>
-        <div className="grid grid-cols-3 divide-x divide-[#f0ede8]">
-          {CREDIT_PACKAGES.map(pkg => (
-            <button
-              key={pkg.id}
-              disabled={purchasingPkg === pkg.id}
-              onClick={() => handleBuyCreditPackage(pkg.id)}
-              className="relative flex flex-col items-center gap-1.5 px-3 py-4 hover:bg-[#faf9f6] active:bg-[#f5f3f0] transition-colors disabled:opacity-50"
-            >
-              {pkg.tag && (
-                <span className="absolute top-2 right-2 text-[7px] font-black uppercase tracking-wider text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full border border-amber-200">
-                  {pkg.tag}
-                </span>
-              )}
-              <span className="text-base font-black text-[#1a1714] tabular-nums">
-                {pkg.credits.toLocaleString()}
-              </span>
-              <span className="text-[10px] text-[#a39890] font-semibold">credits</span>
-              <span className="mt-1 text-xs font-black text-[#1a1714]">
-                {purchasingPkg === pkg.id ? '…' : pkg.displayPrice}
-              </span>
-            </button>
-          ))}
-        </div>
-      </div>
 
       <div className="grid grid-cols-3 gap-3">
         {packs.map(pack => {
@@ -232,7 +176,13 @@ export default function PackStorePage() {
                 </div>
 
                 {/* Pack name */}
-                <div className="relative flex flex-col items-center justify-center pt-5 pb-6 px-2 gap-3">
+                <div className="relative flex flex-col items-center justify-center pt-4 pb-6 px-2 gap-3">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src="https://a.espncdn.com/combiner/i?img=/i/teamlogos/leagues/500/nba.png&h=80&w=80"
+                    alt="NBA"
+                    className="w-10 h-10 object-contain drop-shadow-lg"
+                  />
                   <div className={`w-full ${theme.nameStripe} py-3 px-2 text-center`}>
                     <div className={`${theme.nameStripeText} font-black text-2xl tracking-tight uppercase leading-none`}>
                       {pack.name}
@@ -250,7 +200,7 @@ export default function PackStorePage() {
               {/* ── Odds + Buy ── */}
               <div className={`${theme.sectionBg} px-3 pt-3 pb-3.5 flex flex-col gap-3`}>
                 <div className="flex items-center justify-between mb-0.5">
-                  <span className="text-[9px] text-white/25 uppercase tracking-widest font-semibold">Odds per pack</span>
+                  <span className="text-[9px] text-white/60 uppercase tracking-widest font-semibold">Odds per pack</span>
                 </div>
                 <div className="space-y-2">
                   {(['platinum', 'gold', 'silver', 'bronze'] as const).map(tier => {
@@ -271,7 +221,7 @@ export default function PackStorePage() {
                             style={{ width: `${barWidth}%` }}
                           />
                         </div>
-                        <span className="text-[10px] text-white/30 w-8 text-right tabular-nums font-medium shrink-0">
+                        <span className="text-[10px] text-white/65 w-8 text-right tabular-nums font-medium shrink-0">
                           {isGuaranteed ? '100%' : `~${packPct}%`}
                         </span>
                       </div>

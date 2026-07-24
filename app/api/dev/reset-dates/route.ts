@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { getUserId } from '@/lib/get-user-id'
 
-export async function POST() {
+export async function POST(req: Request) {
+  const USER_ID = await getUserId(req)
+  if (!USER_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const sb = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -14,7 +17,7 @@ export async function POST() {
   const { error: predsErr } = await sb
     .from('predictions')
     .delete()
-    .eq('user_id', 'default')
+    .eq('user_id', USER_ID)
 
   if (predsErr) return NextResponse.json({ error: predsErr.message }, { status: 500 })
 

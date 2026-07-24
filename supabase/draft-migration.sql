@@ -7,7 +7,7 @@ create table if not exists app_settings (
 insert into app_settings (key, value) values
   ('draft_enabled',   'false'),
   ('draft_opens_at',  'null'),
-  ('draft_year',      '2027'),
+  ('draft_year',      '2026'),
   ('draft_lock_time', 'null')   -- ISO timestamp; null = not locked globally
 on conflict (key) do nothing;
 

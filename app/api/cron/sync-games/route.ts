@@ -98,6 +98,10 @@ async function syncDate(
 // Called by Vercel cron daily, or manually from admin.
 // Body (optional): { dates: string[] }  — defaults to yesterday/today/tomorrow.
 export async function POST(req: Request) {
+  if (req.headers.get('Authorization') !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
     return NextResponse.json({ error: 'SUPABASE_SERVICE_ROLE_KEY not set' }, { status: 500 })
   }

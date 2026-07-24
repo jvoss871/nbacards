@@ -1,8 +1,11 @@
 'use client'
 
 import { useEffect, useState, useMemo } from 'react'
-import { supabase, USER_ID } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase'
+import { useUserId } from '@/lib/use-user-id'
 import { CollectionSkeleton } from '@/components/Skeleton'
+import { ActionCard } from '@/components/ActionCard'
+import { useLockBodyScroll } from '@/lib/use-lock-body-scroll'
 import type { Player, Tier, ActionCardType } from '@/lib/types'
 
 interface UserActionCardWithType {
@@ -12,9 +15,9 @@ interface UserActionCardWithType {
   type: ActionCardType
 }
 import { TIER_COLORS, TIER_LABEL } from '@/lib/game-logic'
+import { teamLogoUrl } from '@/lib/team-logo'
+import { lastNameFontSize, GOLD_HEX_BG, splitName } from '@/lib/card-utils'
 import Link from 'next/link'
-import { LegendCard, type LegendData } from '@/components/LegendCard'
-import { PrestigePicker, type LegendOption } from '@/components/PrestigePicker'
 
 interface OwnedCard {
   id: string
@@ -23,34 +26,10 @@ interface OwnedCard {
   reliability: number[] | null
 }
 
-interface EarnedLegend {
-  prestige_number: number
-  legend: LegendOption
-}
-
-interface PrestigeStatus {
-  prestigeLevel: number
-  ownedUnique: number
-  totalPlayers: number
-  canPrestige: boolean
-  nextSlot: number
-  nextSlotPosition: string
-  nextSlotLabel: string
-  nextSlotOptions: LegendOption[]
-  earnedLegends: EarnedLegend[]
-}
-
 const TIER_ORDER: Tier[] = ['platinum', 'gold', 'silver', 'bronze']
-const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X']
-
-const TIER_DOT: Record<Tier, string> = {
-  platinum: 'bg-blue-400',
-  gold:     'bg-yellow-400',
-  silver:   'bg-slate-400',
-  bronze:   'bg-amber-500',
-}
 
 export default function CollectionPage() {
+  const { userId } = useUserId()
   const [cards, setCards] = useState<OwnedCard[]>([])
   const [totalByTier, setTotalByTier] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
@@ -59,31 +38,27 @@ export default function CollectionPage() {
   const [search, setSearch] = useState('')
 
   const [selectedCard, setSelectedCard] = useState<OwnedCard | null>(null)
-  const [prestige, setPrestige] = useState<PrestigeStatus | null>(null)
-  const [showPrestigeModal, setShowPrestigeModal] = useState(false)
-  const [selectedLegendId, setSelectedLegendId] = useState<string | null>(null)
-  const [prestiging, setPrestiging] = useState(false)
-  const [prestigeResult, setPrestigeResult] = useState<{ legendName: string; newLevel: number } | null>(null)
-const [actionCards, setActionCards] = useState<UserActionCardWithType[]>([])
+  const [selectedActionCard, setSelectedActionCard] = useState<{ ac: UserActionCardWithType; count: number } | null>(null)
+  const [actionCards, setActionCards] = useState<UserActionCardWithType[]>([])
 
   useEffect(() => {
+    if (!userId) return
     Promise.all([
       supabase
         .from('user_cards')
         .select('id, quantity, reliability, player:players(*)')
-        .eq('user_id', USER_ID)
+        .eq('user_id', userId)
         .order('acquired_at', { ascending: false }),
       supabase
         .from('players')
         .select('tier'),
-      fetch('/api/prestige').then(r => r.json()),
       supabase
         .from('user_action_cards')
         .select('*, type:action_card_types(*)')
-        .eq('user_id', USER_ID)
+        .eq('user_id', userId)
         .eq('used', false)
         .order('acquired_at', { ascending: false }),
-    ]).then(([ownedRes, allRes, prestigeData, actionRes]) => {
+    ]).then(([ownedRes, allRes, actionRes]) => {
       setCards(
         (ownedRes.data ?? []).map((c: { id: string; quantity: number; reliability: number[] | null; player: unknown }) => ({
           id: c.id,
@@ -97,50 +72,13 @@ const [actionCards, setActionCards] = useState<UserActionCardWithType[]>([])
         counts[p.tier] = (counts[p.tier] ?? 0) + 1
       }
       setTotalByTier(counts)
-      setPrestige(prestigeData)
       setActionCards((actionRes.data ?? []) as UserActionCardWithType[])
       setLoading(false)
     })
-  }, [])
-
-async function handlePrestige(legendId: string | null) {
-    if (!legendId) return
-    setPrestiging(true)
-    try {
-      const res = await fetch('/api/prestige', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ legendId }),
-      })
-      const data = await res.json()
-      if (data.success) {
-        setPrestigeResult({ legendName: data.legend?.name ?? 'Legend', newLevel: data.newPrestigeLevel })
-        setCards([])
-        setPrestige(prev => {
-          if (!prev) return null
-          const chosen = prev.nextSlotOptions.find(l => l.id === legendId)
-          return {
-            ...prev,
-            prestigeLevel: data.newPrestigeLevel,
-            ownedUnique: 0,
-            canPrestige: false,
-            nextSlotOptions: [],
-            earnedLegends: chosen
-              ? [...prev.earnedLegends, { prestige_number: data.newPrestigeLevel, legend: chosen }]
-              : prev.earnedLegends,
-          }
-        })
-        setShowPrestigeModal(false)
-        setSelectedLegendId(null)
-      }
-    } finally {
-      setPrestiging(false)
-    }
-  }
+  }, [userId])
 
   const totalCards    = cards.reduce((s, c) => s + c.quantity, 0)
   const uniquePlayers = new Set(cards.map(c => c.player.id)).size
-  const totalPlayers  = Object.values(totalByTier).reduce((s, n) => s + n, 0)
 
   const tierCounts = useMemo(() =>
     Object.fromEntries(
@@ -180,9 +118,6 @@ async function handlePrestige(legendId: string | null) {
   if (loading) return <CollectionSkeleton />
 
   const isFiltered = rarityFilter !== 'all' || teamFilter !== 'all' || search.trim() !== ''
-  const prestigePct = prestige && prestige.totalPlayers > 0
-    ? Math.min(100, Math.round((prestige.ownedUnique / prestige.totalPlayers) * 100))
-    : 0
 
   return (
     <div className="space-y-5">
@@ -196,97 +131,7 @@ async function handlePrestige(legendId: string | null) {
             </p>
           )}
         </div>
-        {totalCards > 0 && (
-          <div className="flex gap-2 flex-wrap justify-end pt-0.5">
-            {TIER_ORDER.map(tier => {
-              const owned = tierCounts[tier] ?? 0
-              if (!owned) return null
-              return (
-                <span key={tier} className="flex items-center gap-1 text-[11px]">
-                  <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${TIER_DOT[tier]}`} />
-                  <span className="font-semibold text-[#6b6259]">{owned} {TIER_LABEL[tier]}</span>
-                </span>
-              )
-            })}
-          </div>
-        )}
       </div>
-
-      {/* Starting Five showcase */}
-      {prestige && prestige.earnedLegends.length > 0 && (
-        <div>
-          <div className="flex items-center gap-3 mb-4">
-            <h2 className="flex items-center gap-1.5 bg-[#1a1714] rounded-md px-2 py-1 text-[10px] font-black uppercase tracking-widest whitespace-nowrap text-amber-400">
-              Starting Five
-              <span className="font-semibold normal-case tracking-normal text-white/40">{prestige.earnedLegends.length} / 5</span>
-            </h2>
-            <div className="flex-1 h-px bg-[#e2ddd6]" />
-          </div>
-          <div className="flex gap-3 overflow-x-auto pb-1">
-            {prestige.earnedLegends.map(ul => (
-              <LegendCard
-                key={ul.prestige_number}
-                legend={ul.legend}
-                prestigeNum={ul.prestige_number}
-                className="w-32 flex-shrink-0"
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Prestige progress */}
-      {prestige && prestige.totalPlayers > 0 && (
-        <div className="relative overflow-hidden rounded-2xl bg-[#1a1714] border border-amber-500/[0.18] p-4">
-          <div className="absolute inset-0 bg-[radial-gradient(ellipse_90%_55%_at_50%_0%,rgba(251,191,36,0.10),transparent_70%)] pointer-events-none" />
-          <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-amber-500/40 to-transparent" />
-
-          <div className="relative flex items-start justify-between gap-3 mb-4">
-            <div>
-              <p className="text-2xl font-black uppercase tracking-[0.2em] text-amber-400/70 mb-1">Prestige</p>
-              <p className="text-white font-black text-3xl leading-none tracking-tight drop-shadow-sm">
-                {prestige.prestigeLevel > 0 ? ROMAN[prestige.prestigeLevel - 1] : '—'}
-              </p>
-            </div>
-            <button
-              onClick={() => setShowPrestigeModal(true)}
-              className={`flex-shrink-0 px-3.5 py-1.5 rounded-xl text-[11px] font-black transition-all ${
-                prestige.canPrestige
-                  ? 'bg-amber-500 hover:bg-amber-400 text-black shadow-[0_0_20px_rgba(251,191,36,0.35)]'
-                  : 'border border-amber-500/40 text-amber-400 hover:text-amber-300 hover:border-amber-400'
-              }`}
-            >
-              {prestige.canPrestige ? 'Prestige Now →' : 'Prestige'}
-            </button>
-          </div>
-
-          <div className="relative space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-[9px] font-black uppercase tracking-[0.25em] text-amber-400/70">Collection</span>
-              <span className="text-[10px] text-amber-400/80 tabular-nums font-bold">
-                {prestige.ownedUnique} / {prestige.totalPlayers}
-              </span>
-            </div>
-            <div className="h-1.5 bg-white/[0.08] rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all ${
-                  prestige.canPrestige
-                    ? 'bg-gradient-to-r from-amber-600 to-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.6)]'
-                    : 'bg-white/25'
-                }`}
-                style={{ width: `${Math.max(2, prestigePct)}%` }}
-              />
-            </div>
-            {!prestige.canPrestige && prestige.nextSlotLabel && (
-              <p className="text-[10px] text-white/40 leading-relaxed pt-0.5">
-                Collect all players to unlock your{' '}
-                <span className="text-amber-400/70 font-semibold">{prestige.nextSlotLabel}</span>
-              </p>
-            )}
-          </div>
-        </div>
-      )}
-
 
       {/* Action Cards */}
       {actionCards.length > 0 && (
@@ -294,48 +139,11 @@ async function handlePrestige(legendId: string | null) {
           <div className="flex items-center gap-3 mb-3">
             <h2 className="flex items-center gap-1.5 bg-[#1a1714] rounded-md px-2 py-1 text-[10px] font-black uppercase tracking-widest whitespace-nowrap text-white/60">
               Action Cards
-              <span className="font-semibold normal-case tracking-normal text-white/40">{actionCards.length}</span>
+              <span className="font-semibold normal-case tracking-normal text-white">{actionCards.length}</span>
             </h2>
             <div className="flex-1 h-px bg-[#e2ddd6]" />
           </div>
           {(() => {
-            const ACTION_RARITY: Record<string, {
-              gradient: string; border: string; foilClass: string
-              iconColor: string; label: string; footer: string; glow: string
-            }> = {
-              common: {
-                gradient:  'from-slate-400 via-slate-600 to-slate-900',
-                border:    'border-slate-300/30',
-                foilClass: 'foil-sweep',
-                iconColor: 'text-slate-100',
-                label:     'text-slate-300',
-                footer:    'from-slate-900',
-                glow:      '',
-              },
-              rare: {
-                gradient:  'from-violet-500 via-violet-800 to-indigo-950',
-                border:    'border-violet-400/40',
-                foilClass: 'foil-sweep',
-                iconColor: 'text-violet-100',
-                label:     'text-violet-200',
-                footer:    'from-indigo-950',
-                glow:      'shadow-[0_0_18px_rgba(139,92,246,0.30)]',
-              },
-              elite: {
-                gradient:  'from-amber-400 via-amber-700 to-stone-950',
-                border:    'border-amber-400/50',
-                foilClass: 'foil-sweep-gold',
-                iconColor: 'text-amber-100',
-                label:     'text-amber-300',
-                footer:    'from-stone-950',
-                glow:      'shadow-[0_0_22px_rgba(251,191,36,0.35)]',
-              },
-            }
-            const contextLabel: Record<string, string> = {
-              trivia: 'Trivia',
-              picks:  'Pick\'em',
-              packs:  'Packs',
-            }
             const grouped = new Map<string, { ac: typeof actionCards[0]; count: number }>()
             for (const ac of actionCards) {
               const key = ac.action_card_type_id
@@ -345,41 +153,20 @@ async function handlePrestige(legendId: string | null) {
             }
             return (
               <div className="flex flex-wrap gap-1.5">
-                {Array.from(grouped.values()).map(({ ac, count }) => {
-                  const s = ACTION_RARITY[ac.type.rarity] ?? ACTION_RARITY.common
-                  return (
-                    <div
-                      key={ac.action_card_type_id}
-                      className={`relative w-14 aspect-[5/7] rounded-lg border-2 overflow-hidden bg-gradient-to-b ${s.gradient} ${s.border} ${s.glow} flex-shrink-0`}
-                      title={`${ac.type.name} · ${ac.type.rarity}`}
-                    >
-                      <div className={`${s.foilClass} absolute inset-0`} />
-                      <div className="absolute inset-[2px] rounded-[6px] border border-white/[0.07] pointer-events-none z-10" />
-
-                      {/* Count badge */}
-                      {count > 1 && (
-                        <div className="absolute top-1 right-1 z-20 bg-black/50 rounded-full w-3.5 h-3.5 flex items-center justify-center">
-                          <span className="text-[6px] font-black text-white leading-none">{count}</span>
-                        </div>
-                      )}
-
-                      {/* Icon */}
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <span className={`text-xl ${s.iconColor} drop-shadow-lg select-none`}>
-                          {ac.type.icon}
-                        </span>
+                {Array.from(grouped.values()).map(({ ac, count }) => (
+                  <div
+                    key={ac.action_card_type_id}
+                    className="relative flex-shrink-0 cursor-pointer"
+                    onClick={() => setSelectedActionCard({ ac, count })}
+                  >
+                    <ActionCard cardType={ac.type} size="sm" />
+                    {count > 1 && (
+                      <div className="absolute top-6 right-1 z-30 w-5 h-5 rounded-full bg-black/70 border border-white/20 flex items-center justify-center pointer-events-none">
+                        <span className="text-[9px] font-black text-white leading-none">×{count}</span>
                       </div>
-
-                      {/* Footer */}
-                      <div className={`absolute bottom-0 inset-x-0 h-2/5 bg-gradient-to-t ${s.footer} to-transparent`} />
-                      <div className="absolute bottom-0 inset-x-0 px-1 pb-1 z-20">
-                        <div className="text-white font-black text-[6px] uppercase tracking-wide leading-tight truncate drop-shadow-lg">
-                          {ac.type.name}
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
+                    )}
+                  </div>
+                ))}
               </div>
             )
           })()}
@@ -448,7 +235,7 @@ async function handlePrestige(legendId: string | null) {
                     <h2 className={`flex items-center gap-1.5 bg-[#1a1714] rounded-md px-2 py-1 text-[10px] font-black uppercase tracking-widest whitespace-nowrap ${'accent' in group ? group.accent : 'text-white/60'}`}>
                       {group.label}
                       {group.key !== 'all' && totalByTier[group.key] != null && (
-                        <span className="font-semibold normal-case tracking-normal text-white/40">
+                        <span className="font-semibold normal-case tracking-normal text-white">
                           {tierCounts[group.key as Tier] ?? 0} / {totalByTier[group.key]}
                         </span>
                       )}
@@ -483,104 +270,36 @@ async function handlePrestige(legendId: string | null) {
         <CardLightbox card={selectedCard} onClose={() => setSelectedCard(null)} />
       )}
 
-      {/* Prestige result banner */}
-      {prestigeResult && (
-        <div className="fixed inset-x-4 bottom-6 z-50 bg-amber-500 text-white rounded-2xl p-4 shadow-2xl flex items-center justify-between gap-4">
-          <div>
-            <div className="font-black text-sm">Prestige {ROMAN[(prestigeResult.newLevel - 1)] ?? prestigeResult.newLevel} unlocked</div>
-            <div className="text-xs text-amber-100 mt-0.5">{prestigeResult.legendName} added to your Starting Five</div>
-          </div>
-          <button onClick={() => setPrestigeResult(null)} className="text-white/70 hover:text-white text-lg leading-none">×</button>
-        </div>
-      )}
-
-      {/* Full-screen prestige picker */}
-      {showPrestigeModal && prestige?.canPrestige && (
-        <PrestigePicker
-          prestigeLevel={prestige.prestigeLevel}
-          nextSlotLabel={prestige.nextSlotLabel}
-          nextSlotPosition={prestige.nextSlotPosition}
-          options={prestige.nextSlotOptions}
-          selectedLegendId={selectedLegendId}
-          onSelect={setSelectedLegendId}
-          onConfirm={() => handlePrestige(selectedLegendId)}
-          onCancel={() => { setShowPrestigeModal(false); setSelectedLegendId(null) }}
-          prestiging={prestiging}
+      {/* Action card lightbox */}
+      {selectedActionCard && (
+        <ActionCardLightbox
+          ac={selectedActionCard.ac}
+          count={selectedActionCard.count}
+          onClose={() => setSelectedActionCard(null)}
         />
       )}
 
-      {/* Not-yet info modal */}
-      {showPrestigeModal && prestige && !prestige.canPrestige && (
-        <div className="fixed inset-0 z-50 bg-black/80 flex items-end sm:items-center justify-center p-4 sm:p-6">
-          <div className="relative overflow-hidden rounded-3xl w-full max-w-sm shadow-2xl bg-gradient-to-b from-[#0d1321] to-[#080d16] border border-white/[0.07]">
-            <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_0%,rgba(251,191,36,0.08),transparent_70%)] pointer-events-none" />
-            <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-amber-500/30 to-transparent" />
-
-            <div className="relative p-6">
-              <p className="text-[8px] font-black uppercase tracking-[0.35em] text-amber-400/40 mb-1">Prestige</p>
-              <h2 className="text-xl font-black text-white mb-2 leading-tight">Build Your Starting Five</h2>
-              <p className="text-white/40 text-sm leading-relaxed mb-5">
-                Collect every player card to unlock Prestige. Your collection resets — and you choose one all-time legend to permanently lock into your{' '}
-                <span className="text-white/65 font-semibold">Starting Five</span>.
-              </p>
-
-              {prestige.nextSlotPosition && (
-                <div className="flex gap-4 items-center mb-5">
-                  {/* Mystery card */}
-                  <div className="flex-shrink-0 w-20 rounded-xl overflow-hidden bg-gradient-to-b from-[#0d1e3a] via-[#081428] to-[#030c18] border border-white/[0.07] shadow-xl">
-                    <div className="aspect-[5/7] flex flex-col items-center justify-center gap-2 relative">
-                      <div className="absolute inset-0 opacity-[0.025]"
-                        style={{ backgroundImage: 'linear-gradient(#fbbf24 1px,transparent 1px),linear-gradient(90deg,#fbbf24 1px,transparent 1px)', backgroundSize: '14px 14px' }} />
-                      <span className="text-amber-400/20 text-3xl font-black select-none relative z-10">?</span>
-                      <span className="text-amber-400/45 text-[9px] font-black uppercase tracking-widest relative z-10">
-                        {prestige.nextSlotPosition}
-                      </span>
-                    </div>
-                    <div className="bg-[#0a1628] px-2 py-1 text-center">
-                      <span className="text-[5px] font-black uppercase tracking-[0.3em] text-amber-400/15">· · ·</span>
-                    </div>
-                  </div>
-                  <div>
-                    <p className="text-[8px] font-black uppercase tracking-[0.2em] text-amber-400/50 mb-1">
-                      Next slot
-                    </p>
-                    <p className="text-white font-black text-base leading-tight">{prestige.nextSlotLabel}</p>
-                    <p className="text-white/25 text-[11px] tabular-nums mt-1">
-                      {prestige.ownedUnique} / {prestige.totalPlayers} players
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              <button
-                onClick={() => setShowPrestigeModal(false)}
-                className="w-full py-2.5 rounded-xl border border-white/10 text-white/40 text-sm font-bold hover:border-white/20 hover:text-white/60 transition-colors"
-              >
-                Got it
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
 
 const CARD_STYLE: Record<Tier, {
   gradient: string; border: string; foil: string; foilClass: string
-  label: string; footer: string; glow: string
+  label: string; footer: string; glow: string; photoGlow: string
 }> = {
-  bronze:   { gradient: 'from-amber-600 via-amber-900 to-stone-950',  border: 'border-amber-500/80',  foil: 'from-amber-500/25 to-transparent',  foilClass: 'foil-sweep',          label: 'text-amber-300',  footer: 'from-stone-950',   glow: 'glow-bronze' },
-  silver:   { gradient: 'from-slate-300 via-slate-600 to-slate-900',  border: 'border-slate-300/70',  foil: 'from-slate-200/20 to-transparent',  foilClass: 'foil-sweep',          label: 'text-slate-200',  footer: 'from-slate-900',   glow: 'glow-silver' },
-  gold:     { gradient: 'from-yellow-400 via-yellow-800 to-amber-950', border: 'border-yellow-400/80', foil: 'from-yellow-300/30 to-transparent', foilClass: 'foil-sweep-gold',     label: 'text-yellow-200', footer: 'from-amber-950',   glow: 'glow-gold' },
-  platinum: { gradient: 'from-cyan-400 via-blue-700 to-indigo-950',   border: 'border-cyan-300/80',   foil: 'from-blue-200/25 to-transparent',   foilClass: 'foil-sweep-platinum', label: 'text-cyan-200',   footer: 'from-indigo-950',  glow: 'glow-platinum' },
+  bronze:   { gradient: 'from-amber-600 via-amber-900 to-stone-950',  border: 'border-amber-500/80',  foil: 'from-amber-500/25 to-transparent',  foilClass: '',                    label: 'text-amber-300',  footer: 'from-stone-950',   glow: 'shadow-sm', photoGlow: 'rgba(217,119,6,0.45)' },
+  silver:   { gradient: 'from-slate-300 via-slate-600 to-slate-900',  border: 'border-slate-300/70',  foil: 'from-slate-200/20 to-transparent',  foilClass: 'foil-sweep',          label: 'text-slate-200',  footer: 'from-slate-900',   glow: 'glow-silver', photoGlow: 'rgba(226,232,240,0.45)' },
+  gold:     { gradient: 'from-yellow-400 via-yellow-800 to-amber-950', border: 'border-yellow-400/80', foil: 'from-yellow-300/30 to-transparent', foilClass: 'foil-sweep-gold',     label: 'text-yellow-200', footer: 'from-amber-950',   glow: 'glow-gold', photoGlow: 'rgba(250,204,21,0.45)' },
+  platinum: { gradient: 'from-cyan-400 via-blue-700 to-indigo-950',   border: 'border-cyan-300/80',   foil: 'from-blue-200/25 to-transparent',   foilClass: 'foil-sweep-platinum', label: 'text-cyan-200',   footer: 'from-indigo-950',  glow: 'glow-platinum', photoGlow: 'rgba(34,211,238,0.45)' },
 }
 
 function PlayerBinder({ card, reliability, onClick }: { card: OwnedCard; reliability: number | null; onClick?: () => void }) {
   const { player } = card
   const s = CARD_STYLE[player.tier]
   const isPlatinum = player.tier === 'platinum'
+  const isGold = player.tier === 'gold'
   const initials = player.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
+  const { first, last } = splitName(player.name)
 
   return (
     <div
@@ -589,7 +308,37 @@ function PlayerBinder({ card, reliability, onClick }: { card: OwnedCard; reliabi
     >
       <div className={`absolute inset-0 bg-gradient-to-br ${s.foil} pointer-events-none`} />
       <div className={`${s.foilClass} absolute inset-0`} />
-      {isPlatinum && <div className="holo-overlay" />}
+      {isPlatinum && (
+        <>
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              background: 'repeating-conic-gradient(from 0deg at 50% 45%, rgba(180,230,255,0.10) 0deg 11deg, rgba(0,10,60,0.06) 11deg 22deg)',
+              mixBlendMode: 'screen',
+            }}
+          />
+          <div
+            className="absolute inset-0 pointer-events-none opacity-[0.22]"
+            style={{
+              backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E\")",
+              backgroundSize: '200px 200px',
+              mixBlendMode: 'overlay',
+            }}
+          />
+          <div className="holo-overlay" />
+        </>
+      )}
+      {isGold && (
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            backgroundImage: GOLD_HEX_BG,
+            backgroundSize: '10.4px 18px',
+            mixBlendMode: 'overlay',
+            opacity: 0.6,
+          }}
+        />
+      )}
       <div className="absolute inset-[3px] rounded-[10px] border border-white/[0.07] pointer-events-none z-10" />
 
       {/* Top banner */}
@@ -601,8 +350,8 @@ function PlayerBinder({ card, reliability, onClick }: { card: OwnedCard; reliabi
         ) : (
           <span />
         )}
-        <span className={`rounded-full px-1.5 py-px text-[6px] font-black uppercase leading-none bg-white/15 ${s.label} ${isPlatinum ? 'platinum-shimmer' : ''}`}>
-          {TIER_LABEL[player.tier]}
+        <span className={`text-[7px] font-black ${s.label} ${isPlatinum ? 'platinum-shimmer' : ''}`}>
+          {player.multiplier}×
         </span>
       </div>
 
@@ -613,6 +362,7 @@ function PlayerBinder({ card, reliability, onClick }: { card: OwnedCard; reliabi
             src={player.image_url}
             alt={player.name}
             className="w-full h-full object-cover object-top"
+            style={{ filter: `drop-shadow(0 0 4px ${s.photoGlow}) drop-shadow(0 0 10px ${s.photoGlow})` }}
             onError={e => { (e.target as HTMLImageElement).style.opacity = '0' }}
           />
         ) : (
@@ -623,20 +373,30 @@ function PlayerBinder({ card, reliability, onClick }: { card: OwnedCard; reliabi
       </div>
 
       {card.quantity > 1 && (
-        <div className="absolute bottom-10 right-1 z-30 w-8 h-8 rounded-full bg-black/70 border border-white/20 flex items-center justify-center">
+        <div className="absolute top-6 right-1 z-30 w-8 h-8 rounded-full bg-black/70 border border-white/20 flex items-center justify-center">
           <span className="text-[10px] font-black text-white leading-none">×{card.quantity}</span>
         </div>
       )}
 
-      <div className={`absolute bottom-0 inset-x-0 h-16 bg-gradient-to-t ${s.footer} to-transparent`} />
+      <div className={`absolute bottom-0 inset-x-0 h-20 bg-gradient-to-t ${s.footer} to-transparent`} />
 
-      <div className="absolute bottom-0 inset-x-0 px-1.5 pb-1.5 z-20">
-        <div className="text-white font-black text-[8px] uppercase tracking-wide leading-tight truncate drop-shadow-lg">
-          {player.name}
-        </div>
-        <div className="flex items-center justify-between mt-0.5">
-          <span className="text-white/50 text-[7px] uppercase">{player.team_abbr}</span>
-          <span className={`text-[8px] font-black ${s.label}`}>{player.multiplier}x</span>
+      <div className="absolute bottom-0 inset-x-0 px-1.5 pb-0.5 z-20 flex items-end justify-between">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={teamLogoUrl(player.team_abbr)}
+          alt={player.team_abbr}
+          className="w-7 h-7 object-contain opacity-85 flex-shrink-0"
+          style={{ filter: 'drop-shadow(0 0 3px rgba(255,255,255,0.9)) drop-shadow(0 0 7px rgba(255,255,255,0.55))' }}
+        />
+        <div className="text-right min-w-0">
+          {first && (
+            <div className="text-white/70 text-[8px] font-bold uppercase tracking-wider leading-none drop-shadow">
+              {first}
+            </div>
+          )}
+          <div className="text-white font-black uppercase tracking-wide leading-tight drop-shadow-lg" style={{ fontSize: lastNameFontSize(last, 14) }}>
+            {last}
+          </div>
         </div>
       </div>
     </div>
@@ -647,6 +407,7 @@ const CARD_W = 160
 const CARD_H = Math.round(CARD_W * 7 / 5)
 
 function CardLightbox({ card, onClose }: { card: OwnedCard; onClose: () => void }) {
+  useLockBodyScroll()
   const { player } = card
   return (
     <div className="fixed inset-0 z-50 bg-black/75 flex flex-col" onClick={onClose}>
@@ -686,6 +447,79 @@ function CardLightbox({ card, onClose }: { card: OwnedCard; onClose: () => void 
         <button
           onClick={onClose}
           className="px-6 py-2.5 rounded-xl border border-white/20 text-white/50 text-sm font-bold hover:text-white/70 transition-colors"
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  )
+}
+
+const CONTEXT_HOW_TO: Record<string, string> = {
+  trivia: 'Activate from the lifelines panel during a Trivia game.',
+  picks:  'Activate from your picks board before locking in your selections.',
+  packs:  'Activate when opening a pack on the Packs page.',
+}
+
+const CONTEXT_LABEL: Record<string, string> = {
+  trivia: 'Trivia',
+  picks:  'Pick\'em',
+  packs:  'Packs',
+}
+
+function ActionCardLightbox({ ac, count, onClose }: { ac: UserActionCardWithType; count: number; onClose: () => void }) {
+  useLockBodyScroll()
+  return (
+    <div className="fixed inset-0 z-50 bg-black/80 flex flex-col items-center justify-center px-6" onClick={onClose}>
+      <div className="flex flex-col items-center gap-6 max-w-xs w-full" onClick={e => e.stopPropagation()}>
+
+        {/* Card */}
+        <div className="relative">
+          <ActionCard cardType={ac.type} size="lg" />
+          {count > 1 && (
+            <div className="absolute top-8 right-1.5 z-30 w-6 h-6 rounded-full bg-black/70 border border-white/20 flex items-center justify-center">
+              <span className="text-[10px] font-black text-white leading-none">×{count}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Info panel */}
+        <div className="w-full bg-[#1a1714] border border-white/10 rounded-2xl overflow-hidden">
+          {/* Header */}
+          <div className="px-5 py-4 border-b border-white/10">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-white font-black text-lg leading-tight">{ac.type.name}</p>
+                <p className="text-white/40 text-[11px] font-semibold uppercase tracking-widest mt-0.5">
+                  {CONTEXT_LABEL[ac.type.context] ?? ac.type.context}
+                </p>
+              </div>
+              <div className="text-right flex-shrink-0">
+                <p className="text-white/30 text-[10px] uppercase tracking-widest font-semibold">Owned</p>
+                <p className="text-white font-black text-xl leading-tight">{count}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* What it does */}
+          <div className="px-5 py-4 border-b border-white/10">
+            <p className="text-white/40 text-[10px] font-black uppercase tracking-widest mb-1.5">What it does</p>
+            <p className="text-white/80 text-sm leading-relaxed">{ac.type.description}</p>
+          </div>
+
+          {/* How to use */}
+          <div className="px-5 py-4">
+            <p className="text-white/40 text-[10px] font-black uppercase tracking-widest mb-1.5">How to use</p>
+            <p className="text-white/60 text-sm leading-relaxed">
+              {CONTEXT_HOW_TO[ac.type.context] ?? 'Activate from the relevant game screen.'}
+            </p>
+          </div>
+        </div>
+
+        {/* Dismiss */}
+        <button
+          onClick={onClose}
+          className="text-white/40 text-sm font-semibold hover:text-white/60 transition-colors"
         >
           Close
         </button>

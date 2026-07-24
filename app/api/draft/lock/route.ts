@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { USER_ID } from '@/lib/supabase'
+import { getUserId } from '@/lib/get-user-id'
 import { DRAFT_YEAR } from '@/lib/draft-logic'
 
 const sb = createClient(
@@ -9,12 +9,15 @@ const sb = createClient(
 )
 
 export async function POST(req: Request) {
+  const userId = await getUserId(req)
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const { year = DRAFT_YEAR } = await req.json()
 
   const { data: board } = await sb
     .from('draft_boards')
     .select('id, status')
-    .eq('user_id', USER_ID)
+    .eq('user_id', userId)
     .eq('year', year)
     .single()
 

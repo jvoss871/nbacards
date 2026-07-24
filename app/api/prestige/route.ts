@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { logEvent } from '@/lib/log-event'
-
-const USER_ID = 'default'
+import { getUserId } from '@/lib/get-user-id'
 
 const SLOT_POSITION: Record<number, string> = { 1: 'PG', 2: 'SG', 3: 'SF', 4: 'PF', 5: 'C' }
 const SLOT_LABEL: Record<number, string> = {
@@ -17,12 +16,15 @@ function serviceClient() {
 }
 
 // GET /api/prestige — eligibility + slot options
-export async function GET() {
+export async function GET(req: Request) {
+  const userId = await getUserId(req)
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const sb = serviceClient()
 
   const [userRes, ownedRes, totalRes] = await Promise.all([
-    sb.from('user_state').select('prestige_level, username').eq('user_id', USER_ID).single(),
-    sb.from('user_cards').select('player_id').eq('user_id', USER_ID),
+    sb.from('user_state').select('prestige_level, username').eq('user_id', userId).single(),
+    sb.from('user_cards').select('player_id').eq('user_id', userId),
     sb.from('players').select('id').eq('in_pool', true),
   ])
 
@@ -39,7 +41,7 @@ export async function GET() {
     sb.from('legends').select('*').eq('prestige_required', nextSlot).order('name'),
     sb.from('user_legends')
       .select('prestige_number, earned_at, legend:legends(*)')
-      .eq('user_id', USER_ID)
+      .eq('user_id', userId)
       .order('prestige_number'),
   ])
 
@@ -59,6 +61,9 @@ export async function GET() {
 
 // POST /api/prestige — perform prestige with chosen legend
 export async function POST(req: Request) {
+  const userId = await getUserId(req)
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const { legendId } = await req.json() as { legendId?: string }
 
   if (!legendId) {
@@ -69,8 +74,8 @@ export async function POST(req: Request) {
 
   // Re-verify eligibility server-side
   const [userRes, ownedRes, totalRes] = await Promise.all([
-    sb.from('user_state').select('prestige_level, username').eq('user_id', USER_ID).single(),
-    sb.from('user_cards').select('player_id').eq('user_id', USER_ID),
+    sb.from('user_state').select('prestige_level, username').eq('user_id', userId).single(),
+    sb.from('user_cards').select('player_id').eq('user_id', userId),
     sb.from('players').select('id').eq('in_pool', true),
   ])
 
@@ -103,7 +108,7 @@ export async function POST(req: Request) {
   }
 
   // Log attempt before any destructive step — if we see this without prestige_completed, something failed mid-flow
-  logEvent(sb, USER_ID, 'prestige_attempt', {
+  logEvent(sb, userId, 'prestige_attempt', {
     from_level: currentLevel,
     to_level: newLevel,
     cards_before: ownedUnique,
@@ -112,14 +117,14 @@ export async function POST(req: Request) {
   })
 
   // 1. Increment prestige level
-  await sb.from('user_state').update({ prestige_level: newLevel }).eq('user_id', USER_ID)
+  await sb.from('user_state').update({ prestige_level: newLevel }).eq('user_id', userId)
 
   // 2. Wipe collection
-  await sb.from('user_cards').delete().eq('user_id', USER_ID)
+  await sb.from('user_cards').delete().eq('user_id', userId)
 
   // 3. Award the chosen legend
   await sb.from('user_legends').upsert(
-    { user_id: USER_ID, legend_id: legendId, prestige_number: newLevel },
+    { user_id: userId, legend_id: legendId, prestige_number: newLevel },
     { onConflict: 'user_id,legend_id' }
   )
 
@@ -127,12 +132,12 @@ export async function POST(req: Request) {
   const inductedToHof = newLevel === 5
   if (inductedToHof) {
     await sb.from('hall_of_fame').upsert(
-      { user_id: USER_ID, username },
+      { user_id: userId, username },
       { onConflict: 'user_id' }
     )
   }
 
-  logEvent(sb, USER_ID, 'prestige_completed', {
+  logEvent(sb, userId, 'prestige_completed', {
     to_level: newLevel,
     legend_name: chosenLegend.name,
     inducted_to_hof: inductedToHof,

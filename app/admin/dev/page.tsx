@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { authedFetch } from '@/lib/authed-fetch'
 
 const ACTION_CARD_TYPES = [
   { id: 'skip',        name: 'Skip' },
@@ -51,10 +52,10 @@ function Btn({ onClick, disabled, children, danger }: { onClick: () => void; dis
 export default function AdminDevPage() {
   const [creditAmount, setCreditAmount]     = useState(500)
   const [actionCardType, setActionCardType] = useState('skip')
-  const [prestigeLevel, setPrestigeLevel]   = useState(1)
+  const [seeding, setSeeding]               = useState(false)
   const [feedback, setFeedback]             = useState<Record<string, string>>({})
-  const [syncDate, setSyncDate]             = useState('')
-  const [syncing, setSyncing]               = useState(false)
+  const [syncingRoster, setSyncingRoster]   = useState(false)
+  const [syncingPhotos, setSyncingPhotos]   = useState(false)
 
   function flash(key: string, msg: string) {
     setFeedback(prev => ({ ...prev, [key]: msg }))
@@ -62,7 +63,7 @@ export default function AdminDevPage() {
   }
 
   async function post(url: string, body?: object): Promise<boolean> {
-    const res = await fetch(url, {
+    const res = await authedFetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
@@ -83,64 +84,51 @@ export default function AdminDevPage() {
         </div>
       </div>
 
-      {/* Schedule */}
-      <Section title="Schedule">
-        <div className="space-y-4">
-          <ActionRow label="Sync games from BallDontLie" desc="Fetches yesterday / today / tomorrow by default, or pick a specific date.">
-            <input
-              type="date"
-              value={syncDate}
-              onChange={e => setSyncDate(e.target.value)}
-              className="px-3 py-1.5 rounded-xl border border-[#e2ddd6] text-xs focus:outline-none focus:border-[#1a1714]/30"
-            />
-            <span className="text-xs text-emerald-600 font-bold">{feedback.syncGames ?? ''}</span>
-            <Btn
-              disabled={syncing}
-              onClick={async () => {
-                setSyncing(true)
-                const body = syncDate ? { dates: [syncDate] } : undefined
-                const res = await fetch('/api/cron/sync-games', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: body ? JSON.stringify(body) : undefined,
-                })
-                const data = await res.json()
-                flash('syncGames', res.ok
-                  ? `+${data.added} added · ${data.updated} updated · ${data.settled} settled`
-                  : data.error ?? 'Error')
-                setSyncing(false)
-              }}
-            >
-              {syncing ? 'Syncing…' : 'Sync'}
-            </Btn>
-          </ActionRow>
-
-          <ActionRow label="Move games to today" desc="Shift all scheduled game dates to today so you can test the picks flow.">
-            <span className="text-xs text-emerald-600 font-bold">{feedback.resetDates ?? ''}</span>
-            <Btn onClick={async () => {
-              const ok = await post('/api/dev/reset-dates')
-              flash('resetDates', ok ? 'Done' : 'Error')
-            }}>
-              Move to Today
-            </Btn>
-          </ActionRow>
-        </div>
-      </Section>
-
-      {/* Backfill reliability */}
-      <Section title="Cards">
-        <ActionRow label="Backfill reliability" desc="Rolls missing reliability values for any card that doesn't have one.">
-          <span className="text-xs text-emerald-600 font-bold">{feedback.reliability ?? ''}</span>
-          <Btn onClick={async () => {
-            const res = await fetch('/api/admin/backfill-reliability', {
-              method: 'POST',
-              headers: { 'x-admin-secret': 'some-long-random-string' },
-            })
-            const data = await res.json()
-            flash('reliability', res.ok ? `${data.updated} cards updated` : 'Error')
-          }}>
-            Backfill
+      {/* Roster */}
+      <Section title="Roster">
+        <ActionRow label="Sync rosters" desc="Pulls fresh team assignments from BallDontLie, cross-checked against NBA.com's active rosters. Fixes stale teams after a trade, and drops players no longer active.">
+          <span className="text-xs text-emerald-600 font-bold">{feedback.syncRoster ?? ''}</span>
+          <Btn
+            disabled={syncingRoster}
+            onClick={async () => {
+              setSyncingRoster(true)
+              const res = await authedFetch('/api/admin/sync-roster', { method: 'POST' })
+              const data = await res.json()
+              flash('syncRoster', res.ok
+                ? `${data.updated} updated · ${data.inserted} added · ${data.removed} removed`
+                : data.error ?? 'Error')
+              setSyncingRoster(false)
+            }}
+          >
+            {syncingRoster ? 'Syncing…' : 'Sync'}
           </Btn>
+        </ActionRow>
+
+        <ActionRow label="Sync player photos" desc="Refreshes headshots from NBA.com's CDN, including anyone whose photo is a stale TheSportsDB cutout from a previous team.">
+          <span className="text-xs text-emerald-600 font-bold">{feedback.syncPhotos ?? ''}</span>
+          <Btn
+            disabled={syncingPhotos}
+            onClick={async () => {
+              setSyncingPhotos(true)
+              const res = await authedFetch('/api/admin/sync-players', { method: 'POST' })
+              const data = await res.json()
+              flash('syncPhotos', res.ok
+                ? `${data.nba_cdn} from NBA · ${data.thesportsdb} fallback · ${data.not_found} not found`
+                : data.error ?? 'Error')
+              setSyncingPhotos(false)
+            }}
+          >
+            {syncingPhotos ? 'Syncing…' : 'Sync'}
+          </Btn>
+        </ActionRow>
+
+        <ActionRow label="Update tiers & pool" desc="Manually re-sort tiers and flip players in or out of the 205-player pool.">
+          <a
+            href="/admin/players"
+            className="px-4 py-2 rounded-xl text-xs font-black bg-[#1a1714] hover:bg-[#2c2825] text-white transition-colors"
+          >
+            Open →
+          </a>
         </ActionRow>
       </Section>
 
@@ -200,21 +188,21 @@ export default function AdminDevPage() {
 
       {/* Prestige */}
       <Section title="Prestige">
-        <ActionRow label="Set prestige level" desc="Resets prestige to the given level and awards legends for each slot.">
+        <ActionRow label="Complete collection" desc="Seeds one card per in-pool player you don't already own, so you can trigger prestige naturally and pick a legend.">
           <span className="text-xs text-emerald-600 font-bold">{feedback.prestige ?? ''}</span>
-          <input
-            type="number"
-            min={0}
-            max={10}
-            value={prestigeLevel}
-            onChange={e => setPrestigeLevel(Number(e.target.value))}
-            className="w-20 px-2.5 py-1.5 rounded-xl border border-[#e2ddd6] text-sm text-center focus:outline-none focus:border-[#1a1714]/30"
-          />
-          <Btn onClick={async () => {
-            const ok = await post('/api/prestige/dev', { level: prestigeLevel })
-            flash('prestige', ok ? `Set to ${prestigeLevel}` : 'Error')
-          }}>
-            Set
+          <Btn
+            disabled={seeding}
+            onClick={async () => {
+              setSeeding(true)
+              const res = await authedFetch('/api/dev/seed-full-set', { method: 'POST' })
+              const data = await res.json()
+              flash('prestige', res.ok
+                ? data.added === 0 ? 'Already complete' : `+${data.added} cards added (${data.total} total)`
+                : data.error ?? 'Error')
+              setSeeding(false)
+            }}
+          >
+            {seeding ? 'Seeding…' : 'Complete Collection'}
           </Btn>
         </ActionRow>
       </Section>
@@ -222,7 +210,7 @@ export default function AdminDevPage() {
       {/* Reset account */}
       <div className="border border-red-200 rounded-2xl p-5">
         <h2 className="text-[10px] font-black uppercase tracking-widest text-red-400 mb-4">Danger Zone</h2>
-        <ActionRow label="Reset account" desc="Wipes all cards, legends, picks, trivia sessions, and action cards. Credits reset to 200.">
+        <ActionRow label="Reset account" desc="Wipes all cards, legends, picks, trivia sessions, action cards, and onboarding progress (as if brand new). Credits reset to 200.">
           <span className="text-xs text-emerald-600 font-bold">{feedback.resetAccount ?? ''}</span>
           <Btn
             danger

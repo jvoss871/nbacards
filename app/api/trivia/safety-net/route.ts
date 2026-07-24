@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { PAYOUTS } from '@/lib/trivia-logic'
-
-const USER_ID = 'default'
+import { getUserId } from '@/lib/get-user-id'
 
 function serviceClient() {
   return createClient(
@@ -15,6 +14,8 @@ function serviceClient() {
 // Body: { session_id, action_card_id }
 // Locks the current step's payout as the floor and marks the action card used.
 export async function POST(req: Request) {
+  const USER_ID = await getUserId(req)
+  if (!USER_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { session_id, action_card_id } = await req.json()
   const sb = serviceClient()
 
@@ -34,12 +35,25 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Floor already at or above this level' }, { status: 400 })
   }
 
+  // Consume the action card atomically first — prevents double-award on concurrent requests
+  const { data: updatedCards } = await sb
+    .from('user_action_cards')
+    .update({ used: true })
+    .eq('id', action_card_id)
+    .eq('user_id', USER_ID)
+    .eq('used', false)
+    .select('id')
+
+  if (!updatedCards || updatedCards.length < 1) {
+    return NextResponse.json({ error: 'Action card already used' }, { status: 400 })
+  }
+
+  // Card consumed — now safe to award credits and update the floor
   await sb
     .from('trivia_sessions')
     .update({ credits_floor: newFloor })
     .eq('id', session_id)
 
-  // Award the floor amount if it exceeds what was already awarded
   const topUp = newFloor - (session.credits_floor ?? 0)
   if (topUp > 0) {
     const { data: state } = await sb
@@ -55,18 +69,7 @@ export async function POST(req: Request) {
     }
   }
 
-  // Mark action card used — only proceeds if the card was still unused (prevents replay)
-  const { data: updatedCards } = await sb
-    .from('user_action_cards')
-    .update({ used: true })
-    .eq('id', action_card_id)
-    .eq('user_id', USER_ID)
-    .eq('used', false)
-    .select('id')
+  const { data: finalState } = await sb.from('user_state').select('credits').eq('user_id', USER_ID).single()
 
-  if (!updatedCards || updatedCards.length < 1) {
-    return NextResponse.json({ error: 'Action card already used' }, { status: 400 })
-  }
-
-  return NextResponse.json({ new_floor: newFloor, credits_awarded: topUp })
+  return NextResponse.json({ new_floor: newFloor, credits_awarded: topUp, credits: finalState?.credits ?? null })
 }

@@ -64,7 +64,7 @@ function InducteeList({ inductees }: { inductees: Inductee[] }) {
 
               <span className="text-[10px] text-white/20 uppercase tracking-wider flex-shrink-0">
                 {new Date(inductee.inducted_at).toLocaleDateString('en-US', {
-                  year: 'numeric', month: 'short', day: 'numeric',
+                  timeZone: 'America/New_York', year: 'numeric', month: 'short', day: 'numeric',
                 })}
               </span>
 
@@ -173,7 +173,7 @@ export default function HallOfFamePage() {
           Hall of Fame
         </h1>
         <p className="mt-5 text-white/25 text-sm font-medium max-w-sm mx-auto leading-relaxed">
-          These players assembled a perfect Starting Five — one legend at each position — and achieved Prestige V.
+          These players assembled a perfect Starting Five, one legend at each position, and achieved Prestige V.
         </p>
 
         {/* Decorative divider */}

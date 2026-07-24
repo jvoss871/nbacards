@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 // Routes that don't require authentication (or handle auth themselves)
-const PUBLIC_PATHS = new Set(['/', '/help', '/onboarding', '/signin'])
+const PUBLIC_PATHS = new Set(['/', '/help', '/onboarding', '/signin', '/join', '/terms'])
 
 // Skip auth enforcement during local development
 const DEV = process.env.NODE_ENV === 'development'

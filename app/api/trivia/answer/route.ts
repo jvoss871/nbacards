@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { PAYOUTS, SAFETY_NET_STEPS, floorForStep } from '@/lib/trivia-logic'
-
-const USER_ID = 'default'
+import { getUserId } from '@/lib/get-user-id'
 
 function serviceClient() {
   return createClient(
@@ -14,6 +13,8 @@ function serviceClient() {
 // POST /api/trivia/answer
 // Body: { session_id, answer: 'a'|'b'|'c'|'d' }
 export async function POST(req: Request) {
+  const USER_ID = await getUserId(req)
+  if (!USER_ID) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { session_id, answer } = await req.json()
   const sb = serviceClient()
 
@@ -72,6 +73,8 @@ export async function POST(req: Request) {
       }
     }
 
+    const { data: finalState } = await sb.from('user_state').select('credits').eq('user_id', USER_ID).single()
+
     return NextResponse.json({
       correct: true,
       step: nextStep,
@@ -79,6 +82,7 @@ export async function POST(req: Request) {
       credits_floor: newFloor,
       status: isWon ? 'won' : 'active',
       correct_answer: question.correct_answer,
+      credits: finalState?.credits ?? null,
     })
   } else {
     // Wrong answer — award up to the highest guaranteed floor
@@ -125,6 +129,8 @@ export async function POST(req: Request) {
       }
     }
 
+    const { data: finalState } = await sb.from('user_state').select('credits').eq('user_id', USER_ID).single()
+
     return NextResponse.json({
       correct: false,
       step: nextStep,
@@ -132,6 +138,7 @@ export async function POST(req: Request) {
       credits_floor: guaranteedFloor,
       status: 'lost',
       correct_answer: question.correct_answer,
+      credits: finalState?.credits ?? null,
     })
   }
 }

@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { authedFetch } from '@/lib/authed-fetch'
 
 export default function SignInPage() {
   const [email, setEmail] = useState('')
@@ -25,7 +26,7 @@ export default function SignInPage() {
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
       if (error) { setAuthError(error.message); setAuthLoading(false); return }
-      const res = await fetch('/api/user/username')
+      const res = await authedFetch('/api/user/username')
       const { username: existing } = await res.json()
       if (existing) {
         window.location.href = '/picks'
@@ -40,7 +41,7 @@ export default function SignInPage() {
     e.preventDefault()
     setAuthError(null)
     setAuthLoading(true)
-    const res = await fetch('/api/user/username', {
+    const res = await authedFetch('/api/user/username', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: usernameVal }),

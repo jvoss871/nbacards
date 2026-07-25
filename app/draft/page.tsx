@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { authedFetch } from '@/lib/authed-fetch'
 import {
   DRAFT_YEAR, FIRST_ROUND_SLOTS, CREDIT_MULTIPLIER, calcDraftCredits, PROJECTED_DRAFT_ORDER_2026,
   type DraftProspect, type DraftBoard, type DraftSettings, type DraftResult,
@@ -256,7 +257,7 @@ export default function DraftPage() {
     }
 
     const [boardRes, prospectsRes] = await Promise.all([
-      fetch(`/api/draft/board?year=${year}`).catch(() => null),
+      authedFetch(`/api/draft/board?year=${year}`).catch(() => null),
       fetch(`/api/draft/prospects?year=${year}`).catch(() => null),
     ])
 
@@ -285,7 +286,7 @@ export default function DraftPage() {
   useEffect(() => {
     if (!settings?.lock_time || !board || board.status !== 'open') return
     if (new Date() >= new Date(settings.lock_time)) {
-      fetch('/api/draft/lock', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) })
+      authedFetch('/api/draft/lock', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) })
         .then(() => setBoard(b => b ? { ...b, status: 'locked' } : b))
     }
   }, [settings, board])
@@ -326,13 +327,13 @@ export default function DraftPage() {
 
   function syncPick(slot: number, prospectId: string | null) {
     if (prospectId) {
-      fetch('/api/draft/pick', {
+      authedFetch('/api/draft/pick', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ slot, prospect_id: prospectId, year: settings?.year }),
       })
     } else {
-      fetch('/api/draft/pick', {
+      authedFetch('/api/draft/pick', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ slot, year: settings?.year }),

@@ -501,16 +501,25 @@ export default function ProfilePage() {
               </h2>
               <div className="flex-1 h-px bg-[#e2ddd6]" />
             </div>
-            <div className="flex gap-3">
-              {prestige.earnedLegends.map(ul => (
-                <div key={ul.prestige_number} className="flex-1 min-w-0">
-                  <LegendCard
-                    legend={ul.legend}
-                    prestigeNum={ul.prestige_number}
-                    className="w-full"
-                  />
-                </div>
-              ))}
+            <div className="flex justify-center gap-3">
+              {([1, 2, 3, 4, 5] as const).map(slot => {
+                const earned = prestige.earnedLegends.find(ul => ul.prestige_number === slot)
+                const posLabel = ['PG', 'SG', 'SF', 'PF', 'C'][slot - 1]
+                return (
+                  <div key={slot} className="w-28 flex-shrink-0">
+                    {earned ? (
+                      <LegendCard legend={earned.legend} prestigeNum={earned.prestige_number} />
+                    ) : (
+                      <div
+                        className="rounded-xl border-2 border-dashed border-[#e2ddd6] flex items-center justify-center"
+                        style={{ aspectRatio: '5/7' }}
+                      >
+                        <span className="text-[10px] font-black text-[#d4cfc9] uppercase tracking-widest">{posLabel}</span>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           </div>
         )}

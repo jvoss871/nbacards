@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { authedFetch } from '@/lib/authed-fetch'
 
 export default function OnboardingPage() {
   const router = useRouter()
@@ -18,7 +19,7 @@ export default function OnboardingPage() {
       if (!sessionData.session) { router.replace('/'); return }
 
       // If they already have a username, skip onboarding
-      const res = await fetch('/api/user/username')
+      const res = await authedFetch('/api/user/username')
       const { username: existing } = await res.json()
       if (existing) { router.replace('/picks'); return }
 
@@ -31,7 +32,7 @@ export default function OnboardingPage() {
     e.preventDefault()
     setError(null)
     setSaving(true)
-    const res = await fetch('/api/user/username', {
+    const res = await authedFetch('/api/user/username', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username }),

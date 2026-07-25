@@ -37,7 +37,7 @@ export default function Nav() {
   const [draftEnabled, setDraftEnabled] = useState(false)
   const [picksEnabled, setPicksEnabled] = useState(true)
   const [isAdmin, setIsAdmin] = useState(false)
-  const isLanding = pathname === '/' || pathname === '/join' || pathname === '/terms'
+  const isLanding = pathname === '/' || pathname === '/join' || pathname === '/terms' || pathname === '/signin'
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {

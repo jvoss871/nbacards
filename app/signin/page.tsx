@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import { authedFetch } from '@/lib/authed-fetch'
@@ -13,6 +13,23 @@ export default function SignInPage() {
   const [usernameVal, setUsernameVal] = useState('')
   const [authError, setAuthError] = useState<string | null>(null)
   const [authLoading, setAuthLoading] = useState(false)
+  const [checkingSession, setCheckingSession] = useState(true)
+
+  // Already signed in? Don't show the sign-in form on top of a live session —
+  // send them where a completed sign-in would have gone.
+  useEffect(() => {
+    supabase.auth.getSession().then(async ({ data }) => {
+      if (!data.session) { setCheckingSession(false); return }
+      const res = await authedFetch('/api/user/username')
+      const { username: existing } = await res.json()
+      if (existing) {
+        window.location.href = '/picks'
+      } else {
+        setAuthStep('username')
+        setCheckingSession(false)
+      }
+    })
+  }, [])
 
   async function handleEmailAuth(e: React.FormEvent) {
     e.preventDefault()
@@ -55,8 +72,17 @@ export default function SignInPage() {
     setAuthError(null)
     await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: `${window.location.origin}/onboarding` },
+      options: {
+        redirectTo: `${window.location.origin}/onboarding`,
+        // Without this, Google silently reuses whatever account is already
+        // active in the browser instead of showing the account picker.
+        queryParams: { prompt: 'select_account' },
+      },
     })
+  }
+
+  if (checkingSession) {
+    return <div className="min-h-[80vh] flex items-center justify-center text-[#a39890] text-sm">Loading…</div>
   }
 
   return (

@@ -535,9 +535,9 @@ export default function TriviaPage() {
               </p>
             </div>
 
-              {/* Lifelines — scouting report */}
+              {/* Lifelines — premium dark info cards */}
               <p className="text-[9px] font-black uppercase tracking-[0.3em] text-[#a39890]">Lifelines</p>
-              <div className="rounded-2xl bg-[#141210] border border-white/[0.06] overflow-hidden shadow-sm">
+              <div className="grid grid-cols-3 gap-2">
                 {([
                   {
                     name: '50 / 50',
@@ -570,18 +570,11 @@ export default function TriviaPage() {
                       </svg>
                     ),
                   },
-                ] as { name: string; desc: string; icon: React.ReactNode }[]).map((l, i) => (
-                  <div
-                    key={l.name}
-                    className={`flex items-center gap-3 px-3.5 py-3 ${i > 0 ? 'border-t border-white/[0.06]' : ''}`}
-                  >
-                    <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center flex-shrink-0">
-                      <div className="w-4 h-4 text-amber-400">{l.icon}</div>
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-[10px] font-black text-white leading-tight">{l.name}</p>
-                      <p className="text-[8px] text-white/40 leading-snug mt-0.5">{l.desc}</p>
-                    </div>
+                ] as { name: string; desc: string; icon: React.ReactNode }[]).map(l => (
+                  <div key={l.name} className="rounded-xl bg-white border-2 border-[#e2ddd6] p-3 shadow-sm">
+                    <div className="w-5 h-5 text-amber-500 mb-2">{l.icon}</div>
+                    <p className="text-[10px] font-black text-[#1a1714] leading-tight mb-1">{l.name}</p>
+                    <p className="text-[8px] text-[#a39890] leading-snug">{l.desc}</p>
                   </div>
                 ))}
               </div>
@@ -756,61 +749,58 @@ export default function TriviaPage() {
               ))}
             </div>
 
-            {/* Lifelines — bench strip */}
+            {/* Lifelines — horizontal strip */}
             {status !== 'correct_pause' && (
-              <div className="rounded-2xl bg-[#141210] border border-white/[0.06] shadow-sm overflow-hidden">
-                <div className="flex">
-                  {/* 50/50 */}
-                  {(() => {
-                    const used = !!session?.lifeline_fifty_used
-                    const disabled = used || lifelineLoading || status === 'revealed'
-                    return (
-                      <button
-                        onClick={() => !disabled && useLifeline('fifty')}
-                        disabled={disabled}
-                        className={`relative flex-1 flex flex-col items-center gap-1 px-2 py-2.5 transition-colors ${
-                          used ? 'cursor-not-allowed' : 'hover:bg-amber-500/[0.07] active:bg-amber-500/[0.12]'
-                        }`}
-                      >
-                        <span className={`absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full ${used ? 'ring-1 ring-white/20' : 'bg-amber-400'}`} />
-                        <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${used ? 'bg-white/[0.04]' : 'bg-amber-500/10'}`}>
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className={`w-3.5 h-3.5 ${used ? 'text-white/25' : 'text-amber-400'}`}>
-                            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-                          </svg>
-                        </div>
-                        <span className={`text-[9px] font-black tracking-wide ${used ? 'text-white/25' : 'text-white/90'}`}>50 / 50</span>
-                      </button>
-                    )
-                  })()}
-                  <div className="w-px bg-white/[0.06] my-2" />
-                  {/* Ask Coach */}
-                  {(() => {
-                    const used = !!session?.lifeline_audience_used
-                    const disabled = used || lifelineLoading || status === 'revealed'
-                    return (
-                      <button
-                        onClick={() => !disabled && useLifeline('audience')}
-                        disabled={disabled}
-                        className={`relative flex-1 flex flex-col items-center gap-1 px-2 py-2.5 transition-colors ${
-                          used ? 'cursor-not-allowed' : 'hover:bg-amber-500/[0.07] active:bg-amber-500/[0.12]'
-                        }`}
-                      >
-                        <span className={`absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full ${used ? 'ring-1 ring-white/20' : 'bg-amber-400'}`} />
-                        <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${used ? 'bg-white/[0.04]' : 'bg-amber-500/10'}`}>
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className={`w-3.5 h-3.5 ${used ? 'text-white/25' : 'text-amber-400'}`}>
-                            <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
-                          </svg>
-                        </div>
-                        <span className={`text-[9px] font-black tracking-wide ${used ? 'text-white/25' : 'text-white/90'}`}>Ask Coach</span>
-                      </button>
-                    )
-                  })()}
-                  <div className="w-px bg-white/[0.06] my-2" />
-                  {/* Phone a Player */}
-                  {(() => {
-                    const used = !!session?.lifeline_phone_used
-                    const noCard = !selectedPhoneCard
-                    return (
+              <div className="flex gap-2">
+                {/* 50/50 */}
+                {(() => {
+                  const used = !!session?.lifeline_fifty_used
+                  const disabled = used || lifelineLoading || status === 'revealed'
+                  return (
+                    <button
+                      onClick={() => !disabled && useLifeline('fifty')}
+                      disabled={disabled}
+                      className={`flex-1 flex flex-col items-center gap-1.5 px-2 py-2.5 rounded-xl border-2 transition-all ${
+                        used
+                          ? 'opacity-30 cursor-not-allowed border-transparent bg-transparent'
+                          : 'bg-white border-[#e2ddd6] hover:border-amber-400/50 hover:bg-amber-50/40 active:scale-[0.97] shadow-sm'
+                      }`}
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-amber-500">
+                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                      </svg>
+                      <span className={`text-[9px] font-black ${used ? 'text-[#1a1714]/30 line-through' : 'text-[#1a1714]'}`}>50 / 50</span>
+                    </button>
+                  )
+                })()}
+                {/* Ask Coach */}
+                {(() => {
+                  const used = !!session?.lifeline_audience_used
+                  const disabled = used || lifelineLoading || status === 'revealed'
+                  return (
+                    <button
+                      onClick={() => !disabled && useLifeline('audience')}
+                      disabled={disabled}
+                      className={`flex-1 flex flex-col items-center gap-1.5 px-2 py-2.5 rounded-xl border-2 transition-all ${
+                        used
+                          ? 'opacity-30 cursor-not-allowed border-transparent bg-transparent'
+                          : 'bg-white border-[#e2ddd6] hover:border-amber-400/50 hover:bg-amber-50/40 active:scale-[0.97] shadow-sm'
+                      }`}
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-amber-500">
+                        <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
+                      </svg>
+                      <span className={`text-[9px] font-black ${used ? 'text-[#1a1714]/30 line-through' : 'text-[#1a1714]'}`}>Ask Coach</span>
+                    </button>
+                  )
+                })()}
+                {/* Phone a Player */}
+                {(() => {
+                  const used = !!session?.lifeline_phone_used
+                  const noCard = !selectedPhoneCard
+                  const canUse = !used && !noCard && !lifelineLoading && status !== 'revealed'
+                  return (
+                    <div className="flex-1 flex flex-col">
                       <button
                         onClick={() => {
                           if (used || lifelineLoading || status === 'revealed') return
@@ -818,30 +808,27 @@ export default function TriviaPage() {
                           useLifeline('phone', selectedPhoneCard!.player.id, selectedPhoneCard!.reliability)
                         }}
                         disabled={used || lifelineLoading || status === 'revealed'}
-                        className={`relative flex-1 flex flex-col items-center gap-1 px-2 py-2.5 transition-colors ${
-                          used ? 'cursor-not-allowed' : 'hover:bg-amber-500/[0.07] active:bg-amber-500/[0.12]'
+                        className={`w-full flex flex-col items-center gap-1.5 px-2 py-2.5 rounded-xl border-2 transition-all ${
+                          used
+                            ? 'opacity-30 cursor-not-allowed border-transparent bg-transparent'
+                            : noCard
+                              ? 'bg-white border-dashed border-[#e2ddd6] hover:border-amber-400/50 hover:bg-amber-50/40 active:scale-[0.97] shadow-sm'
+                              : 'bg-white border-[#e2ddd6] hover:border-amber-400/50 hover:bg-amber-50/40 active:scale-[0.97] shadow-sm'
                         }`}
                       >
-                        <span className={`absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full ${used ? 'ring-1 ring-white/20' : 'bg-amber-400'}`} />
-                        <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${
-                          used ? 'bg-white/[0.04]' : noCard ? 'ring-1 ring-dashed ring-amber-400/30' : 'bg-amber-500/10'
-                        }`}>
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className={`w-3.5 h-3.5 ${used ? 'text-white/25' : noCard ? 'text-amber-400/50' : 'text-amber-400'}`}>
-                            <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.15 12 19.79 19.79 0 0 1 1.08 3.4 2 2 0 0 1 3.05 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/>
-                          </svg>
-                        </div>
-                        <span className={`text-[9px] font-black tracking-wide truncate max-w-full ${
-                          used ? 'text-white/25' : noCard ? 'text-white/50' : 'text-white/90'
-                        }`}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className={`w-4 h-4 ${canUse ? 'text-amber-500' : noCard ? 'text-amber-400/50' : 'text-amber-500'}`}>
+                          <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.15 12 19.79 19.79 0 0 1 1.08 3.4 2 2 0 0 1 3.05 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/>
+                        </svg>
+                        <span className={`text-[9px] font-black truncate ${used ? 'text-[#1a1714]/30 line-through' : noCard ? 'text-[#a39890]' : 'text-[#1a1714]'}`}>
                           {used ? 'Phone' : noCard ? 'Pick card' : selectedPhoneCard!.player.name.split(' ').slice(-1)[0]}
                         </span>
                       </button>
-                    )
-                  })()}
-                </div>
-                {selectedPhoneCard && !session?.lifeline_phone_used && (
-                  <p className="text-[8px] text-amber-400/50 text-center pb-2 -mt-1 tracking-wide">card burns if you lose</p>
-                )}
+                      {selectedPhoneCard && !used && (
+                        <p className="text-[7px] text-red-500/60 text-center mt-0.5 leading-tight">burns if loss</p>
+                      )}
+                    </div>
+                  )
+                })()}
               </div>
             )}
 

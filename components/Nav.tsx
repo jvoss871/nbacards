@@ -166,7 +166,7 @@ export default function Nav() {
             Logout
           </button>
 
-          {isAdmin && (
+          {isSignedIn && isAdmin && (
             <Link
               href="/admin"
               className="ml-1 px-2.5 py-1 rounded-lg text-xs font-medium text-[#c8c2b8] hover:text-[#1a1714] hover:bg-[#f5f3f0] transition-colors"

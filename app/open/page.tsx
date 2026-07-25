@@ -204,7 +204,7 @@ function PackOpenInner() {
       <div className="flex flex-wrap justify-center gap-4">
         {drawnCards.map(({ player, reliability }, i) => {
           const rerollCard = packsActionCards.find(c => c.type.id === 'reroll')
-          const canReroll = flipped[i] && !!rerollCard
+          const canReroll = flipped[i] && !!rerollCard && player.tier !== 'platinum'
           return (
             <div key={i} className="flex flex-col items-center gap-3">
               <PlayerCardFlip

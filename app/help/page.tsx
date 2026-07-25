@@ -295,7 +295,7 @@ function Cards() {
     { name: 'Safety Net',  context: 'Trivia', desc: 'Locks your most recent question\'s credit value as a guaranteed floor, even if you miss later.' },
     { name: 'Insurance',   context: 'Picks',  desc: 'If your pick loses, your wagered card is returned instead of forfeited.' },
     { name: 'Double Down', context: 'Picks',  desc: 'Doubles your credit reward if the pick wins. No effect on a loss.' },
-    { name: 'Reroll',      context: 'Packs',  desc: 'Replace one card slot with a fresh draw of the same or higher tier.' },
+    { name: 'Reroll',      context: 'Packs',  desc: 'Replace one card slot with a fresh draw of the same tier or better. Platinum cards can\'t be rerolled.' },
     { name: 'Repack',      context: 'Packs',  desc: 'Scrap the entire pack and draw a completely new set.' },
   ]
   const contexts = ['Trivia', 'Picks', 'Packs'] as const

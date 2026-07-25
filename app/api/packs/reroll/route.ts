@@ -53,6 +53,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Pack or player pool not found' }, { status: 404 })
   }
 
+  // Platinum is the top tier, so a reroll can't offer "same tier or higher" without
+  // either reproducing another platinum (the exact farming loop this card must not enable)
+  // or silently downgrading. Rather than either, platinum cards simply can't be rerolled.
+  const oldPlayer = (players as Player[]).find(p => p.id === replace_player_id)
+  if (oldPlayer?.tier === 'platinum') {
+    return NextResponse.json({ error: 'Platinum cards cannot be rerolled' }, { status: 400 })
+  }
+
   // Undo the old copy of this card
   if (owned.quantity <= 1) {
     await sb.from('user_cards').delete().eq('id', owned.id)
@@ -63,11 +71,9 @@ export async function POST(req: Request) {
     }).eq('id', owned.id)
   }
 
-  // Draw the replacement — same platinum-cap rule as the original pack draw: replacing a
-  // platinum can't roll into another platinum.
-  const oldPlayer = (players as Player[]).find(p => p.id === replace_player_id)
-  const cappedOdds = oldPlayer?.tier === 'platinum' ? { ...pack.odds, platinum: 0 } : pack.odds
-  const newPlayer = drawCard({ ...(pack as PackType), odds: cappedOdds }, players as Player[], false)
+  // Draw the replacement — floored at the old card's tier so a reroll is never a downgrade.
+  const floorTier = oldPlayer?.tier ?? pack.guaranteed_tier
+  const newPlayer = drawCard({ ...(pack as PackType), guaranteed_tier: floorTier }, players as Player[], true)
   const newReliability = rollReliability(newPlayer.tier)
 
   const { data: existing } = await sb

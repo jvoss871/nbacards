@@ -16,9 +16,15 @@ insert into action_card_types (id, name, description, rarity, icon, context) val
   ('safety_net',  'Safety Net',  'Lock your current step as the guaranteed payout floor',               'rare',   '🪢',   'trivia'),
   ('insurance',   'Insurance',   'If your pick loses, your wagered card is returned to you',            'rare',   '🛡',  'picks'),
   ('double_down', 'Double Down', 'Double the credit reward on your next winning wager',                 'elite',  '⚡',   'picks'),
-  ('reroll',      'Reroll',      'Dismiss one card from a pack and draw a replacement',                 'common', '🎲',  'packs'),
+  ('reroll',      'Reroll',      'Redraw one card at the same tier or better (platinum can''t be rerolled)', 'common', '🎲',  'packs'),
   ('repack',      'Repack',      'Scrap your entire pack result and draw a completely new set',         'elite',  '🔄',  'packs')
 on conflict (id) do nothing;
+
+-- Reroll's guarantee changed from a plain fresh draw to a same-tier-or-better floor —
+-- update the description on existing rows too, since the insert above only fires for new ones.
+update action_card_types
+set description = 'Redraw one card at the same tier or better (platinum can''t be rerolled)'
+where id = 'reroll';
 
 -- User inventory of action cards
 create table if not exists user_action_cards (

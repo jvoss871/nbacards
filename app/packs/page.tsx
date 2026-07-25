@@ -124,12 +124,6 @@ export default function PackStorePage() {
 
       <div>
         <h1 className="text-xl font-black text-[#1a1714]">Pack Store</h1>
-        <p className="text-[#a39890] text-sm mt-1">
-          You have{' '}
-          <span className="text-amber-700 font-bold">
-            {credits === null ? '-' : credits.toLocaleString()} credits
-          </span>
-        </p>
       </div>
 
       {isNewUser && credits === 200 && (

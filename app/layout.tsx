@@ -4,6 +4,7 @@ import Nav from '@/components/Nav'
 import { CreditsProvider } from '@/lib/credits-context'
 import { AuthGuard } from '@/components/AuthGuard'
 export const metadata: Metadata = {
+  metadataBase: new URL('https://nbacardpicks.com'),
   title: 'CardPicks: NBA Prediction Game',
   description: 'Predict NBA games, earn credits, open card packs.',
 }

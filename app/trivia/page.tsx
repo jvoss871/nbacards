@@ -67,6 +67,47 @@ type GameStatus = 'loading' | 'generating' | 'idle' | 'playing' | 'revealed' | '
 const OPTION_LABELS: AnswerKey[] = ['a', 'b', 'c', 'd']
 const OPTION_LETTERS: Record<AnswerKey, string> = { a: 'A', b: 'B', c: 'C', d: 'D' }
 
+const MEDALS = ['🥇', '🥈', '🥉']
+
+function LeaderboardCallout() {
+  const [top3, setTop3] = useState<{ username: string; totalCorrect: number }[]>([])
+
+  useEffect(() => {
+    fetch('/api/leaderboard')
+      .then(r => r.json())
+      .then(d => setTop3((d.entries ?? []).slice(0, 3)))
+      .catch(() => {})
+  }, [])
+
+  return (
+    <a
+      href="/leaderboard"
+      className="block bg-white border border-[#e2ddd6] rounded-xl shadow-sm hover:border-amber-400/50 hover:bg-amber-50/30 transition-all group"
+    >
+      <div className="flex items-center justify-between px-4 py-3">
+        <div>
+          <p className="text-[9px] font-black uppercase tracking-[0.3em] text-amber-600/60 mb-0.5">Monthly</p>
+          <p className="text-xs font-black text-[#1a1714]">Trivia Leaderboard</p>
+        </div>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-[#c8c2b8] group-hover:text-amber-500 transition-colors">
+          <path d="M9 18l6-6-6-6"/>
+        </svg>
+      </div>
+      {top3.length > 0 && (
+        <div className="flex items-center gap-3 px-4 pb-3 -mt-0.5">
+          {top3.map((e, i) => (
+            <div key={i} className="flex items-center gap-1 min-w-0">
+              <span className="text-xs flex-shrink-0">{MEDALS[i]}</span>
+              <span className="text-[10px] font-bold text-[#1a1714] truncate max-w-[64px]">{e.username}</span>
+              <span className="text-[9px] text-[#a39890] flex-shrink-0">{e.totalCorrect}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </a>
+  )
+}
+
 export default function TriviaPage() {
   const { userId } = useUserId()
   const { setCredits } = useCredits()
@@ -427,18 +468,7 @@ export default function TriviaPage() {
           : ''
     return (
       <div className="max-w-md mx-auto py-16 text-center space-y-4">
-        <a
-          href="/leaderboard"
-          className="flex items-center justify-between px-4 py-3 bg-white border border-[#e2ddd6] rounded-xl shadow-sm hover:border-amber-400/50 hover:bg-amber-50/30 transition-all group"
-        >
-          <div>
-            <p className="text-[9px] font-black uppercase tracking-[0.3em] text-amber-600/60 mb-0.5">Monthly</p>
-            <p className="text-xs font-black text-[#1a1714]">Trivia Leaderboard</p>
-          </div>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-[#c8c2b8] group-hover:text-amber-500 transition-colors">
-            <path d="M9 18l6-6-6-6"/>
-          </svg>
-        </a>
+        <LeaderboardCallout />
         <h1 className="text-2xl font-black text-[#1a1714]">{title}</h1>
         <p className="text-[#6b6259] text-sm">{msg}</p>
         {creditsEarned > 0 && (
@@ -493,18 +523,7 @@ export default function TriviaPage() {
           <div className="flex-1 min-w-0 space-y-2.5">
 
             {/* Leaderboard callout */}
-            <a
-              href="/leaderboard"
-              className="flex items-center justify-between px-4 py-3 bg-white border border-[#e2ddd6] rounded-xl shadow-sm hover:border-amber-400/50 hover:bg-amber-50/30 transition-all group"
-            >
-              <div>
-                <p className="text-[9px] font-black uppercase tracking-[0.3em] text-amber-600/60 mb-0.5">Monthly</p>
-                <p className="text-xs font-black text-[#1a1714]">Trivia Leaderboard</p>
-              </div>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-[#c8c2b8] group-hover:text-amber-500 transition-colors">
-                <path d="M9 18l6-6-6-6"/>
-              </svg>
-            </a>
+            <LeaderboardCallout />
 
             {/* Jackpot headline */}
             <div className="text-center py-6">

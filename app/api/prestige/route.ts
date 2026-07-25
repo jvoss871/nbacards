@@ -119,8 +119,9 @@ export async function POST(req: Request) {
   // 1. Increment prestige level
   await sb.from('user_state').update({ prestige_level: newLevel }).eq('user_id', userId)
 
-  // 2. Wipe collection
+  // 2. Wipe collection — cards and any unused action cards accrued along the way
   await sb.from('user_cards').delete().eq('user_id', userId)
+  await sb.from('user_action_cards').delete().eq('user_id', userId)
 
   // 3. Award the chosen legend
   await sb.from('user_legends').upsert(

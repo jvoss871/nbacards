@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { LegendCard } from '@/components/LegendCard'
 import type { LegendData } from '@/components/LegendCard'
+import { supabase } from '@/lib/supabase'
 
 interface StartingFiveMember {
   slot: number
@@ -76,12 +77,14 @@ export default function LandingPage() {
   const [inductees, setInductees] = useState<Inductee[]>([])
   const [hofLoading, setHofLoading] = useState(true)
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [isSignedIn, setIsSignedIn] = useState(false)
 
   useEffect(() => {
     fetch('/api/hall-of-fame')
       .then(r => r.json())
       .then(d => { setInductees(d.inductees ?? []); setHofLoading(false) })
       .catch(() => setHofLoading(false))
+    supabase.auth.getSession().then(({ data }) => setIsSignedIn(!!data.session))
   }, [])
 
   return (
@@ -135,7 +138,7 @@ export default function LandingPage() {
             The NBA card game where <span className="text-white/80">your knowledge</span> builds your roster.
           </p>
           <Link
-            href="/trivia"
+            href={isSignedIn ? '/trivia' : '/signin'}
             className="inline-flex items-center gap-2.5 px-8 py-4 rounded-2xl text-sm font-black uppercase tracking-widest transition-all hover:brightness-110 active:scale-95"
             style={{ background: 'linear-gradient(90deg, #b8860b, #FFD700, #daa520)', color: '#1a1400', boxShadow: '0 0 32px rgba(251,191,36,0.30), 0 4px 16px rgba(0,0,0,0.5)' }}
           >

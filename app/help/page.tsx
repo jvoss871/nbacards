@@ -9,6 +9,7 @@ const SECTIONS = [
   { id: 'opening-packs',   title: 'Opening Packs' },
   { id: 'pickem',          title: 'Pick\'em' },
   { id: 'trivia',          title: 'Daily Trivia' },
+  { id: 'leaderboard',     title: 'Monthly Leaderboard' },
   { id: 'draft',           title: 'NBA Draft Board' },
   { id: 'prestige',        title: 'Prestige' },
   { id: 'trophies',        title: 'Trophies' },
@@ -58,6 +59,7 @@ export default function HelpPage() {
               {active === 'opening-packs'   && <OpeningPacks />}
               {active === 'pickem'          && <Pickem />}
               {active === 'trivia'          && <Trivia />}
+              {active === 'leaderboard'     && <Leaderboard />}
               {active === 'draft'           && <Draft />}
               {active === 'action-cards'    && <ActionCards />}
               {active === 'prestige'        && <Prestige />}
@@ -142,14 +144,14 @@ function PlayerCards() {
 
 function OpeningPacks() {
   const packs = [
-    { name: 'Starter Pack',  cost: '200 cr',   desc: 'Mostly Bronze and Silver. Occasional Gold. Good for building early depth.' },
-    { name: 'Hardwood Pack', cost: '500 cr',   desc: 'Better Gold odds with a slim Platinum chance. The sweet spot for credits-per-pull.' },
-    { name: 'Elite Pack',    cost: '2,000 cr', desc: 'Guaranteed Gold minimum per slot. Real Platinum odds. Maximum ceiling.' },
+    { name: 'Starter Pack',  cost: '200 cr',   desc: '3 cards. Mostly Bronze, with real Silver and a rare shot at Gold or Platinum.' },
+    { name: 'Hardwood Pack', cost: '600 cr',   desc: '3 cards. Silver is the most likely pull, with solid Gold odds and a better shot at Platinum.' },
+    { name: 'Elite Pack',    cost: '2,000 cr', desc: '5 cards. Gold and Silver dominate the odds, with the best Platinum chance of any pack.' },
   ]
   return (
     <div className="space-y-4">
       <p>
-        Head to the Pack Store to spend credits on card packs. Each slot draws from the full player roster, weighted by that pack's tier odds. One slot per pack is <strong className="text-[#1a1714]">guaranteed</strong> to hit the minimum tier.
+        Head to the Pack Store to spend credits on card packs. Each slot draws from the full player roster, weighted by that pack's tier odds. Every pack guarantees at least Bronze per slot — nothing ever comes back empty.
       </p>
       <div className="space-y-2">
         {packs.map(p => (
@@ -264,6 +266,32 @@ function Trivia() {
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+function Leaderboard() {
+  const prizes = [
+    { place: '1st', credits: '5,000' },
+    { place: '2nd', credits: '2,500' },
+    { place: '3rd', credits: '1,000' },
+  ]
+  return (
+    <div className="space-y-4">
+      <p>
+        Every correct trivia answer counts toward a monthly leaderboard, ranked by total correct answers across every session you play that calendar month — not just your best single run. Check your standing from the Daily Trivia screen.
+      </p>
+      <div className="grid grid-cols-3 gap-2">
+        {prizes.map(p => (
+          <div key={p.place} className="bg-[#faf9f6] rounded-xl px-3 py-2.5 text-center">
+            <div className="text-[10px] font-black uppercase tracking-widest text-[#a39890]">{p.place}</div>
+            <div className="font-mono font-black text-[#1a1714] text-sm mt-0.5">{p.credits} cr</div>
+          </div>
+        ))}
+      </div>
+      <InfoBox label="Payout timing">
+        The top 3 are credited automatically at the start of the next month. Ties go to whoever reached their total first.
+      </InfoBox>
     </div>
   )
 }

@@ -46,7 +46,10 @@ export async function POST(req: Request) {
 
   if (correct) {
     const isWon = nextStep === 15
-    const { error } = await sb
+    // Guard the update on current_step still matching what we just read — if two
+    // concurrent answer submissions raced for this same step, only one can actually
+    // advance the session; the other gets zero rows back and must not award credits too.
+    const { data: updatedSessions, error } = await sb
       .from('trivia_sessions')
       .update({
         current_step:  nextStep,
@@ -54,23 +57,18 @@ export async function POST(req: Request) {
         status:        isWon ? 'won' : 'active',
       })
       .eq('id', session_id)
+      .eq('current_step', session.current_step)
+      .select('id')
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (!updatedSessions || updatedSessions.length < 1) {
+      return NextResponse.json({ error: 'This step was already answered' }, { status: 409 })
+    }
 
     // Award credits if won or if passing a safety net
     if (isWon || SAFETY_NET_STEPS.has(nextStep)) {
       const award = isWon ? PAYOUTS[15] : creditsAtStep
-      const { data: state } = await sb
-        .from('user_state')
-        .select('credits')
-        .eq('user_id', USER_ID)
-        .single()
-      if (state) {
-        await sb
-          .from('user_state')
-          .update({ credits: state.credits + award })
-          .eq('user_id', USER_ID)
-      }
+      await sb.rpc('adjust_credits', { p_user_id: USER_ID, p_delta: award })
     }
 
     const { data: finalState } = await sb.from('user_state').select('credits').eq('user_id', USER_ID).single()

@@ -31,26 +31,27 @@ export async function POST(req: Request) {
   // Only award credits above what was already paid at safety-net steps
   const topUp  = Math.max(0, total - (session.credits_floor ?? 0))
 
-  await sb
+  // Guard on status still being 'active' — if two concurrent walkaway calls raced, only one
+  // can actually flip this session, so the other gets zero rows back and must not also award.
+  const { data: updatedSessions } = await sb
     .from('trivia_sessions')
     .update({ status: 'walked_away', credits_floor: total })
     .eq('id', session_id)
+    .eq('status', 'active')
+    .select('id')
 
-  if (topUp > 0) {
-    const { data: state } = await sb
-      .from('user_state')
-      .select('credits')
-      .eq('user_id', USER_ID)
-      .single()
-    if (state) {
-      await sb
-        .from('user_state')
-        .update({ credits: state.credits + topUp })
-        .eq('user_id', USER_ID)
-    }
+  if (!updatedSessions || updatedSessions.length < 1) {
+    return NextResponse.json({ error: 'Session already ended' }, { status: 409 })
   }
 
-  const { data: finalState } = await sb.from('user_state').select('credits').eq('user_id', USER_ID).single()
+  let finalCredits: number | null = null
+  if (topUp > 0) {
+    const { data: newBalance } = await sb.rpc('adjust_credits', { p_user_id: USER_ID, p_delta: topUp })
+    finalCredits = newBalance
+  } else {
+    const { data: state } = await sb.from('user_state').select('credits').eq('user_id', USER_ID).single()
+    finalCredits = state?.credits ?? null
+  }
 
-  return NextResponse.json({ earned: total, topUp, credits: finalState?.credits ?? null })
+  return NextResponse.json({ earned: total, topUp, credits: finalCredits })
 }

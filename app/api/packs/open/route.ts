@@ -49,21 +49,23 @@ export async function POST(req: Request) {
   const { data: pack } = await sb.from('pack_types').select('*').eq('id', pack_id).single()
   if (!pack) return NextResponse.json({ error: 'Pack not found' }, { status: 404 })
 
-  const { data: state } = await sb.from('user_state').select('credits').eq('user_id', userId).single()
-  if (!state) return NextResponse.json({ error: 'User not found' }, { status: 404 })
-  if (state.credits < pack.credit_cost) {
-    return NextResponse.json({ error: 'Not enough credits' }, { status: 402 })
-  }
-
   const { data: players } = await sb.from('players').select('*').eq('in_pool', true)
   if (!players || players.length === 0) {
     return NextResponse.json({ error: 'No players in the card pool yet. Sync the roster first.' }, { status: 409 })
   }
 
-  const previousBalance = state.credits
-  const newBalance = previousBalance - pack.credit_cost
-  const { error: deductError } = await sb.from('user_state').update({ credits: newBalance }).eq('user_id', userId)
+  // Atomic deduct-if-sufficient — a plain read-then-write here lets two simultaneous
+  // requests both read the same starting balance and both pass the affordability check,
+  // effectively opening two packs for the price of one. adjust_credits does the check
+  // and the write as a single UPDATE, so a concurrent second request re-evaluates against
+  // the already-decremented balance instead of a stale one.
+  const { data: newBalance, error: deductError } = await sb.rpc('adjust_credits', {
+    p_user_id: userId,
+    p_delta: -pack.credit_cost,
+  })
   if (deductError) return NextResponse.json({ error: deductError.message }, { status: 500 })
+  if (newBalance === null) return NextResponse.json({ error: 'Not enough credits' }, { status: 402 })
+  const previousBalance = newBalance + pack.credit_cost
 
   try {
     const cards = drawPackCards(pack as PackType, players as Player[], rollReliability)
@@ -107,8 +109,9 @@ export async function POST(req: Request) {
       bonusActionCardId,
     })
   } catch (e) {
-    // Refund on draw failure
-    await sb.from('user_state').update({ credits: previousBalance }).eq('user_id', userId)
+    // Refund on draw failure — adjust by +cost rather than setting back to the old absolute
+    // balance, so this can't clobber an unrelated concurrent change to the same row.
+    await sb.rpc('adjust_credits', { p_user_id: userId, p_delta: pack.credit_cost })
     return NextResponse.json({ error: `Failed to draw cards: ${e instanceof Error ? e.message : String(e)}` }, { status: 500 })
   }
 }

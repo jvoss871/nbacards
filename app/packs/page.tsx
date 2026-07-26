@@ -107,7 +107,11 @@ export default function PackStorePage() {
       return
     }
     setBuying(pack.id)
-    router.push(`/open?packId=${pack.id}&packName=${encodeURIComponent(pack.name)}`)
+    // openId is a one-time idempotency key for this specific purchase — carrying it in the
+    // URL means a refresh of the resulting /open page replays the same purchase result
+    // instead of the page's load effect firing a brand new (and newly charged) pack open.
+    const openId = crypto.randomUUID()
+    router.push(`/open?packId=${pack.id}&packName=${encodeURIComponent(pack.name)}&openId=${openId}`)
   }
 
   if (loading) return <PacksSkeleton />

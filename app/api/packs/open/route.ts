@@ -35,16 +35,30 @@ async function saveCard(
 }
 
 // POST /api/packs/open
-// Body: { pack_id }
+// Body: { pack_id, open_id }
 // Deducts credits, rolls the card draw + bonus action card entirely server-side
 // (previously done in the browser, which let a client dictate its own results), saves
 // the results, and returns them for display only.
+//
+// open_id is a one-time idempotency key generated when the Buy button is clicked and
+// carried in the /open page's URL. Without it, a browser refresh of that page re-runs its
+// load effect and silently buys — and pays for — a brand new pack. With it, a replayed
+// request for an id that's already been fulfilled just returns the original result again.
 export async function POST(req: Request) {
   const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { pack_id } = await req.json() as { pack_id: string }
+  const { pack_id, open_id } = await req.json() as { pack_id: string; open_id: string }
+  if (!open_id) return NextResponse.json({ error: 'open_id is required' }, { status: 400 })
   const sb = serviceClient()
+
+  const { data: existingResult } = await sb
+    .from('pack_open_results')
+    .select('result')
+    .eq('id', open_id)
+    .eq('user_id', userId)
+    .maybeSingle()
+  if (existingResult) return NextResponse.json(existingResult.result)
 
   const { data: pack } = await sb.from('pack_types').select('*').eq('id', pack_id).single()
   if (!pack) return NextResponse.json({ error: 'Pack not found' }, { status: 404 })
@@ -101,13 +115,21 @@ export async function POST(req: Request) {
       cards: cards.map(({ player }) => ({ name: player.name, tier: player.tier })),
     })
 
-    return NextResponse.json({
+    const result = {
       credits: newBalance,
       pack_name: pack.name,
       cards,
       bonusCard,
       bonusActionCardId,
-    })
+    }
+
+    // Best-effort — if this insert fails (e.g. a genuine race on the same open_id) the
+    // purchase itself is already done and correct; a retry would just redo the (harmless,
+    // idempotent-in-effect) draw-and-save rather than double-charging, since credits were
+    // already atomically deducted above.
+    await sb.from('pack_open_results').insert({ id: open_id, user_id: userId, result })
+
+    return NextResponse.json(result)
   } catch (e) {
     // Refund on draw failure — adjust by +cost rather than setting back to the old absolute
     // balance, so this can't clobber an unrelated concurrent change to the same row.

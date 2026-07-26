@@ -27,6 +27,7 @@ function PackOpenInner() {
   const router = useRouter()
   const packId = params.get('packId')
   const packNameParam = params.get('packName')
+  const openId = params.get('openId')
   const { userId } = useUserId()
   const { setCredits } = useCredits()
 
@@ -45,18 +46,20 @@ function PackOpenInner() {
   const [showTear, setShowTear] = useState(true)
 
   useEffect(() => {
-    if (!packId) { router.replace('/packs'); return }
+    if (!packId || !openId) { router.replace('/packs'); return }
     if (!userId) return
     if (hasLoaded.current) return
     hasLoaded.current = true
 
     async function load() {
       // Credits, card draw, and action-card rolls all happen server-side — the client
-      // only ever renders whatever the server decided.
+      // only ever renders whatever the server decided. open_id is an idempotency key: a
+      // refresh of this exact URL resends the same id, so the server replays the original
+      // result instead of charging for a brand new pack.
       const res = await authedFetch('/api/packs/open', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pack_id: packId }),
+        body: JSON.stringify({ pack_id: packId, open_id: openId }),
       })
       if (!res.ok) {
         const err = await res.json().catch(() => ({}))
@@ -84,7 +87,7 @@ function PackOpenInner() {
       setLoading(false)
     }
     load()
-  }, [packId, router, setCredits, userId])
+  }, [packId, openId, router, setCredits, userId])
 
   const allPlayerCardsRevealed = flipped.length > 0 && flipped.every(Boolean) && drawnCards.length > 0
   const allRevealed = allPlayerCardsRevealed && (bonusCard ? bonusFlipped : true)

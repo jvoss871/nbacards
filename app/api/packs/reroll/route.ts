@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getUserId } from '@/lib/get-user-id'
-import { drawCard } from '@/lib/game-logic'
+import { drawCard, REROLL_ODDS } from '@/lib/game-logic'
 import { rollReliability } from '@/lib/trivia-logic'
-import type { Player, PackType } from '@/lib/types'
+import type { Player } from '@/lib/types'
 
 function serviceClient() {
   return createClient(
@@ -13,16 +13,17 @@ function serviceClient() {
 }
 
 // POST /api/packs/reroll
-// Body: { action_card_id, pack_id, replace_player_id }
+// Body: { action_card_id, replace_player_id }
 // Burns a 'reroll' action card to redraw one slot server-side. `replace_player_id` must be
 // a card the caller currently owns (proves it's their own drawn card, not an arbitrary id) —
-// the request is rejected before any mutation if ownership can't be verified.
+// the request is rejected before any mutation if ownership can't be verified. The redraw uses
+// a fixed odds table (REROLL_ODDS), not whatever pack the client claims to be opening.
 export async function POST(req: Request) {
   const userId = await getUserId(req)
   if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { action_card_id, pack_id, replace_player_id } = await req.json() as {
-    action_card_id: string; pack_id: string; replace_player_id: string
+  const { action_card_id, replace_player_id } = await req.json() as {
+    action_card_id: string; replace_player_id: string
   }
   const sb = serviceClient()
 
@@ -47,10 +48,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'You do not own that card' }, { status: 400 })
   }
 
-  const { data: pack } = await sb.from('pack_types').select('*').eq('id', pack_id).single()
   const { data: players } = await sb.from('players').select('*').eq('in_pool', true)
-  if (!pack || !players || players.length === 0) {
-    return NextResponse.json({ error: 'Pack or player pool not found' }, { status: 404 })
+  if (!players || players.length === 0) {
+    return NextResponse.json({ error: 'Player pool not found' }, { status: 404 })
   }
 
   // Platinum is the top tier, so a reroll can't offer "same tier or higher" without
@@ -72,8 +72,8 @@ export async function POST(req: Request) {
   }
 
   // Draw the replacement — floored at the old card's tier so a reroll is never a downgrade.
-  const floorTier = oldPlayer?.tier ?? pack.guaranteed_tier
-  const newPlayer = drawCard({ ...(pack as PackType), guaranteed_tier: floorTier }, players as Player[], true)
+  const floorTier = oldPlayer?.tier ?? 'bronze'
+  const newPlayer = drawCard({ odds: REROLL_ODDS, guaranteed_tier: floorTier }, players as Player[], true)
   const newReliability = rollReliability(newPlayer.tier)
 
   const { data: existing } = await sb

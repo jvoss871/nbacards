@@ -99,7 +99,6 @@ function PackOpenInner() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         action_card_id: card.id,
-        pack_id: packId,
         replace_player_id: drawnCards[idx].player.id,
       }),
     })

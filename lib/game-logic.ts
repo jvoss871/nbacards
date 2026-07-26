@@ -13,13 +13,18 @@ export const TIER_LABEL: Record<Tier, string> = {
   bronze: 'Bronze', silver: 'Silver', gold: 'Gold', platinum: 'Platinum',
 }
 
+// Reroll draws are floored at the old card's tier, independent of whichever pack is being
+// opened — a per-pack odds table would let a caller just submit whichever pack_id has the
+// most favorable ratio for the tier they're rerolling.
+export const REROLL_ODDS: Record<Tier, number> = { bronze: 0.55, silver: 0.30, gold: 0.13, platinum: 0.02 }
+
 export function calcCreditsEarned(multiplier: number): number {
   return Math.round(BASE_CREDITS_PER_WIN * multiplier)
 }
 
 // guaranteedSlot=true: this card slot is guaranteed to be at least pack.guaranteed_tier.
 // guaranteedSlot=false: raw odds apply — any tier (including bronze) can drop.
-export function drawCard(pack: PackType, players: Player[], guaranteedSlot = false): Player {
+export function drawCard(pack: Pick<PackType, 'odds' | 'guaranteed_tier'>, players: Player[], guaranteedSlot = false): Player {
   const { odds, guaranteed_tier } = pack
   const tierOrder: Tier[] = ['bronze', 'silver', 'gold', 'platinum']
   const guaranteedIdx = tierOrder.indexOf(guaranteed_tier)

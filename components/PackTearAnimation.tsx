@@ -3,10 +3,12 @@
 import { useEffect, useState } from 'react'
 import { useLockBodyScroll } from '@/lib/use-lock-body-scroll'
 
-const THEMES: Record<string, { grad: string; stripe: string; glow: string }> = {
-  Starter:  { grad: 'from-blue-950 via-[#0f1b3d] to-[#0a1128]',   stripe: 'bg-red-600',    glow: 'rgba(59,130,246,0.35)' },
-  Hardwood: { grad: 'from-amber-950 via-[#1c1105] to-[#100b02]',  stripe: 'bg-amber-500',  glow: 'rgba(217,119,6,0.35)' },
-  Elite:    { grad: 'from-cyan-950 via-[#060d1f] to-[#02050f]',   stripe: 'bg-cyan-400',   glow: 'rgba(34,211,238,0.4)' },
+// Mirrors PACK_THEMES in app/packs/page.tsx so the tear-open animation is the same
+// physical pack the player just saw and bought in the store, not a generic placeholder.
+const THEMES: Record<string, { grad: string; stripe: string; stripeText: string; glow: string; starCount: number; starColor: string }> = {
+  Starter:  { grad: 'from-blue-950 via-[#0f1b3d] to-[#0a1128]',   stripe: 'bg-red-600',    stripeText: 'text-white',       glow: 'rgba(59,130,246,0.35)', starCount: 1, starColor: 'text-red-400' },
+  Hardwood: { grad: 'from-amber-950 via-[#1c1105] to-[#100b02]',  stripe: 'bg-amber-500',  stripeText: 'text-stone-950',   glow: 'rgba(217,119,6,0.35)',  starCount: 3, starColor: 'text-amber-400' },
+  Elite:    { grad: 'from-cyan-950 via-[#060d1f] to-[#02050f]',   stripe: 'bg-cyan-400',   stripeText: 'text-cyan-950',    glow: 'rgba(34,211,238,0.4)',   starCount: 5, starColor: 'text-cyan-400' },
 }
 
 // Jagged tear edge, positioned near the top of the pack rather than down the middle —
@@ -60,7 +62,8 @@ export function PackTearAnimation({ packName, onDone }: { packName: string; onDo
       />
 
       <div className="relative w-52 sm:w-60 aspect-[5/7]">
-        {/* Top strip — the piece that actually tears off */}
+        {/* Top strip — the piece that actually tears off. Carries the same "CardPicks"
+            wordmark stripe as the top of the pack tile in the store. */}
         <div
           className={`absolute inset-0 rounded-t-2xl overflow-hidden bg-gradient-to-b ${theme.grad} border-t-2 border-x-2 border-white/10`}
           style={{
@@ -70,10 +73,13 @@ export function PackTearAnimation({ packName, onDone }: { packName: string; onDo
               : `tearAcross ${TEAR_MS}ms cubic-bezier(0.5,0,0.75,0) forwards`,
           }}
         >
-          <div className={`absolute top-0 inset-x-0 h-2 ${theme.stripe}`} />
+          <div className={`${theme.stripe} px-3 py-1.5 flex items-center justify-between`}>
+            <span className={`${theme.stripeText} text-[9px] font-black uppercase tracking-[0.15em]`}>CardPicks</span>
+          </div>
         </div>
 
-        {/* Body — the rest of the pack, falls away after the top rips off */}
+        {/* Body — the rest of the pack, falls away after the top rips off. Same NBA logo /
+            name banner / star rating as the store tile, so it's recognizably the same pack. */}
         <div
           className={`absolute inset-0 rounded-b-2xl overflow-hidden bg-gradient-to-b ${theme.grad} border-b-2 border-x-2 border-white/10`}
           style={{
@@ -85,13 +91,25 @@ export function PackTearAnimation({ packName, onDone }: { packName: string; onDo
         >
           <div className="absolute inset-0 opacity-[0.05]"
             style={{ backgroundImage: 'linear-gradient(135deg,#fff 0%,transparent 40%)' }} />
-        </div>
-
-        {/* Center wordmark, sits under both pieces until they tear away */}
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <span className="text-white/90 font-black text-lg uppercase tracking-widest drop-shadow-lg">
-            {packName}
-          </span>
+          <div className="relative flex flex-col items-center pt-8 px-3 gap-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="https://a.espncdn.com/combiner/i?img=/i/teamlogos/leagues/500/nba.png&h=80&w=80"
+              alt="NBA"
+              className="w-9 h-9 object-contain drop-shadow-lg"
+            />
+            <div className={`w-full ${theme.stripe} py-2.5 px-2 text-center`}>
+              <div className={`${theme.stripeText} font-black text-lg tracking-tight uppercase leading-none`}>
+                {packName}
+              </div>
+              <div className={`${theme.stripeText} opacity-60 text-[7px] tracking-[0.25em] uppercase mt-1 font-semibold`}>
+                Series
+              </div>
+            </div>
+            <div className={`text-sm tracking-[0.5em] ${theme.starColor}`}>
+              {'★'.repeat(theme.starCount)}
+            </div>
+          </div>
         </div>
       </div>
 

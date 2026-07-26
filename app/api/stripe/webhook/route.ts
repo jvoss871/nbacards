@@ -37,34 +37,26 @@ export async function POST(req: Request) {
 
     const sb = serviceClient()
 
-    // Idempotency — skip if this session was already credited
-    const { data: existing } = await sb
-      .from('purchases')
-      .select('id')
-      .eq('stripe_session_id', session.id)
-      .maybeSingle()
+    // Idempotency — a select-then-insert check has the exact same race the credit update
+    // below is designed to avoid (two near-simultaneous duplicate deliveries could both see
+    // "not yet recorded" and both credit the account). The real guard is the unique
+    // constraint on stripe_session_id: if this insert fails because the session is already
+    // recorded, some delivery (possibly concurrent) already handled it — skip crediting.
+    const { error: insertError } = await sb.from('purchases').insert({
+      user_id:        userId,
+      stripe_session_id: session.id,
+      credits_granted: credits,
+      amount_cents:   session.amount_total ?? 0,
+    })
 
-    if (!existing) {
-      await sb.from('purchases').insert({
-        user_id:        userId,
-        stripe_session_id: session.id,
-        credits_granted: credits,
-        amount_cents:   session.amount_total ?? 0,
-      })
-
-      const { data: state } = await sb
-        .from('user_state')
-        .select('credits')
-        .eq('user_id', userId)
-        .single()
-
-      if (state) {
-        await sb
-          .from('user_state')
-          .update({ credits: state.credits + credits })
-          .eq('user_id', userId)
+    if (insertError) {
+      if (insertError.code !== '23505') {
+        return NextResponse.json({ error: insertError.message }, { status: 500 })
       }
+      return NextResponse.json({ received: true })
     }
+
+    await sb.rpc('adjust_credits', { p_user_id: userId, p_delta: credits })
   }
 
   return NextResponse.json({ received: true })

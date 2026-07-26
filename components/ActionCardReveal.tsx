@@ -3,6 +3,7 @@
 import type { ActionCardType } from '@/lib/types'
 import { ACTION_CARD_STYLE, ActionCard } from './ActionCard'
 import { ActionCardIcon } from './ActionCardIcon'
+import { CardBack } from './CardBack'
 
 const CONTEXT_LABEL: Record<string, string> = {
   trivia: 'Trivia',
@@ -27,16 +28,7 @@ export default function ActionCardReveal({ card, revealed, onFlip }: Props) {
       <div className={`card-flip w-full h-full relative ${revealed ? 'flipped' : ''}`}>
 
         {/* Back */}
-        <div className="card-face w-full h-full rounded-2xl border border-[#e2ddd6] bg-gradient-to-br from-stone-800 via-stone-900 to-stone-950 flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-stone-500 transition-colors select-none overflow-hidden shadow-sm">
-          <div className="foil-sweep absolute inset-0" />
-          <div className="absolute inset-[5px] rounded-xl border border-white/[0.06] pointer-events-none" />
-          <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center relative z-10">
-            <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 opacity-30">
-              <polygon points="13,2 3,14 12,14 11,22 21,10 12,10"/>
-            </svg>
-          </div>
-          <span className="text-[9px] font-bold tracking-[0.3em] uppercase text-white/20 relative z-10">Action</span>
-        </div>
+        <CardBack />
 
         {/* Front */}
         <div className={`card-face card-back w-full h-full rounded-2xl border-2 overflow-hidden relative bg-gradient-to-b ${s.gradient} ${s.border}`}>

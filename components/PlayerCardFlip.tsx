@@ -4,6 +4,7 @@ import type { Player, Tier } from '@/lib/types'
 import { TIER_LABEL } from '@/lib/game-logic'
 import { teamLogoUrl } from '@/lib/team-logo'
 import { lastNameFontSize, GOLD_HEX_BG, splitName } from '@/lib/card-utils'
+import { CardBack } from './CardBack'
 
 interface Props {
   card: Player
@@ -82,16 +83,7 @@ export default function PlayerCardFlip({ card, reliability, revealed, onFlip }: 
       <div className={`card-flip w-full h-full relative ${revealed ? 'flipped' : ''}`}>
 
         {/* ── Card back ── */}
-        <div className="card-face w-full h-full rounded-2xl border border-[#e2ddd6] bg-gradient-to-br from-stone-800 via-stone-900 to-stone-950 flex flex-col items-center justify-center gap-2 cursor-pointer hover:border-stone-500 transition-colors select-none overflow-hidden shadow-sm">
-          {/* Back foil sweep */}
-          <div className="foil-sweep absolute inset-0" />
-          {/* Back inner frame */}
-          <div className="absolute inset-[5px] rounded-xl border border-white/[0.06] pointer-events-none" />
-          <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center relative z-10">
-            <span className="text-xl">🏀</span>
-          </div>
-          <span className="text-[9px] font-bold tracking-[0.3em] uppercase text-white/20 relative z-10">CardPicks</span>
-        </div>
+        <CardBack />
 
         {/* ── Card front ── */}
         <div className={`card-face card-back w-full h-full rounded-2xl border-2 overflow-hidden relative bg-gradient-to-b ${s.gradient} ${s.border}`}>
